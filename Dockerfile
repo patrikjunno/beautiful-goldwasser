@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Installera beroenden
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm ci --no-audit --no-fund
 
 # Kopiera hela projektet och bygg
 COPY . .
