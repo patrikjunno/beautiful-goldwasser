@@ -14,7 +14,6 @@ RUN npm run build || (echo "Build misslyckades" && exit 1)
 FROM nginx:1.27-alpine
 
 # Kopiera färdigbyggd app (React/Vite hamnar i dist eller build)
-COPY --from=build /app/dist /usr/share/nginx/html
 COPY --from=build /app/build /usr/share/nginx/html
 
 # Kopiera Nginx-konfiguration
