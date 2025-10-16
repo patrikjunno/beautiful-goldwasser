@@ -4,6 +4,7 @@ on:
   push:
     branches: [ main ]
     tags: [ 'v*.*.*' ]  # bygger även när du taggar en release, t.ex. v1.2.3
+  workflow_dispatch: {}  
 
 jobs:
   build:
