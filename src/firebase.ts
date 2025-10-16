@@ -6,7 +6,7 @@ import type { FirebaseStorage } from "firebase/storage";
 import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBgoKkWETtYWeLDWwaP4x09uy95cnxSP8g",
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY || "",
   authDomain: "it-returns.firebaseapp.com",
   projectId: "it-returns",
   storageBucket: "it-returns.firebasestorage.app", // kontrollera i Firebase Console
