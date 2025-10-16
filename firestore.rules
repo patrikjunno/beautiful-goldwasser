@@ -1,0 +1,270 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- Globala helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Admin-claim kan vara 'role: admin', 'admin: true' eller 'roles.admin: true'
+    function isAdmin() {
+      return request.auth != null
+        && (
+          request.auth.token.role == 'admin' ||
+          request.auth.token.admin == true ||
+          (request.auth.token.roles != null && request.auth.token.roles.admin == true)
+        );
+    }
+
+    // ===== itInventory (huvuddokument) =====
+    match /itInventory/{id} {
+      // --- Lokala rollhjälpare ---
+      function role()        { return request.auth != null ? request.auth.token.role : null; }
+      function status()      { return request.auth != null ? request.auth.token.status : null; }
+      function isUser()      { return request.auth != null && role() == 'user'; }
+      function isActiveCustomer() {
+        return request.auth != null && role() == 'customer' && status() == 'active';
+      }
+      function customerKeys() {
+        return request.auth != null && (request.auth.token.customerKeys is list)
+          ? request.auth.token.customerKeys
+          : [];
+      }
+
+      // --- Invariants / valideringar ---
+      function exactlyOneStatus(n) {
+        return (n.reuse == true ? 1 : 0)
+             + (n.resold == true ? 1 : 0)
+             + (n.scrap == true ? 1 : 0)
+             == 1;
+      }
+
+      // completed=true får bara ske om exakt en status är vald
+      function completionValid() {
+        return !(request.resource.data.completed == true && resource.data.completed != true)
+               || exactlyOneStatus(request.resource.data);
+      }
+
+      // markForInvoice får bara bli true om posten redan är completed
+      function markForInvoiceValid() {
+        return !(request.resource.data.markedForInvoice == true && resource.data.markedForInvoice != true)
+               || (resource.data.completed == true);
+      }
+
+      // Förbjud att invoiceReportId läggs till, tas bort eller ändras vid UPDATE (klient)
+      function forbidInvoiceChangeOnUpdate() {
+        let beforeHas = resource.data.keys().hasAny(['invoiceReportId']);
+        let afterHas  = request.resource.data.keys().hasAny(['invoiceReportId']);
+
+        // Tillåtet endast om:
+        // 1) fältet saknas både före och efter, ELLER
+        // 2) fältet finns både före och efter OCH värdet är oförändrat
+        return (!beforeHas && !afterHas)
+            || (beforeHas && afterHas
+                && request.resource.data.invoiceReportId == resource.data.invoiceReportId);
+      }
+
+      // P0d/P1d: completed=true kräver aktiv produkttyp med faktorvärden > 0
+      function validProductType(ptId) {
+        let pt = get(/databases/$(database)/documents/productTypes/$(ptId)).data;
+        return pt.active == true
+          && pt.medianWeightKg is number && pt.medianWeightKg > 0
+          && pt.co2PerUnitKg is number && pt.co2PerUnitKg > 0;
+      }
+
+      // Guard när man sätter completed=true (CREATE)
+      function completionTypeGuardCreate() {
+        return (request.resource.data.completed != true)
+          || (request.resource.data.productTypeId is string
+              && request.resource.data.productTypeId.size() > 0
+              && validProductType(request.resource.data.productTypeId));
+      }
+
+      // Guard när man sätter completed=true (UPDATE)
+      function completionTypeGuardUpdate() {
+        return ((request.resource.data.completed != true) || (resource.data.completed == true))
+          || (request.resource.data.productTypeId is string
+              && request.resource.data.productTypeId.size() > 0
+              && validProductType(request.resource.data.productTypeId));
+      }
+
+      // --- Läsrätt ---
+      allow read: if
+        isAdmin() ||
+        isUser()  ||
+        (isActiveCustomer() && (resource.data.customer in customerKeys()));
+
+      // --- Skrivrätt ---
+      // CREATE: admin/user. Förbjud att klienten skickar med invoiceReportId.
+      //         Kräv giltig produkttyp om completed=true i samma skrivning.
+      allow create: if (isAdmin() || isUser())
+        && !request.resource.data.keys().hasAny(['invoiceReportId'])
+        && completionTypeGuardCreate();
+
+      // UPDATE: admin/user. Förbjud ändring/tillägg/borttag av invoiceReportId.
+      //         Lås poster som redan är fakturerade.
+      //         Behåll statusskydd + produkt-typ-guard.
+      allow update: if (isAdmin() || isUser())
+        && forbidInvoiceChangeOnUpdate()
+        && (
+          !(resource.data.keys().hasAny(['invoiceReportId'])) ||
+          resource.data.invoiceReportId == null ||
+          resource.data.invoiceReportId == ''
+        )
+        && completionValid()
+        && markForInvoiceValid()
+        && completionTypeGuardUpdate();
+
+      // DELETE: endast admin och bara om posten inte är fakturerad
+      allow delete: if isAdmin()
+        && (
+          !(resource.data.keys().hasAny(['invoiceReportId'])) ||
+          resource.data.invoiceReportId == null ||
+          resource.data.invoiceReportId == ''
+        );
+    }
+
+    // ===== itInventory (alla undersamlingar under en post) =====
+    match /itInventory/{id}/{sub=**} {
+      function role()        { return request.auth != null ? request.auth.token.role : null; }
+      function status()      { return request.auth != null ? request.auth.token.status : null; }
+      function isUser()      { return request.auth != null && role() == 'user'; }
+      function isActiveCustomer() {
+        return request.auth != null && role() == 'customer' && status() == 'active';
+      }
+      function customerKeys() {
+        return request.auth != null && (request.auth.token.customerKeys is list)
+          ? request.auth.token.customerKeys
+          : [];
+      }
+      function canReadParent() {
+        return isAdmin() || isUser() ||
+          (isActiveCustomer() &&
+           (get(/databases/$(database)/documents/itInventory/$(id)).data.customer in customerKeys()));
+      }
+
+      allow read: if canReadParent();
+
+      // Skriv i undersamlingar endast om parent EJ är fakturerad
+      allow create, update, delete: if (isAdmin() || isUser()) && (
+        !(get(/databases/$(database)/documents/itInventory/$(id)).data.keys().hasAny(['invoiceReportId'])) ||
+        get(/databases/$(database)/documents/itInventory/$(id)).data.invoiceReportId == null ||
+        get(/databases/$(database)/documents/itInventory/$(id)).data.invoiceReportId == ''
+      );
+    }
+
+    // ===== Övriga samlingar =====
+
+// Unikhetsindex för serienummer (skyddad)
+match /serialIndex/{serialKey} {
+  // Läs: inloggade
+  allow read: if isSignedIn();
+
+  // Skriv: inloggade + fältwhitelist + invariants
+  allow create, update: if isSignedIn()
+                        && _serialIndexFieldsOk()
+                        && _serialIndexInvariantOk();
+
+  // Radera index endast för admin (t.ex. dev/wipe)
+  allow delete: if isAdmin();
+
+  // --- Lokala helpers för detta match-block ---
+  function _serialIndexFieldsOk() {
+    // Tillåt ENBART dessa fält och rätt typer
+    return request.resource.data.keys().hasOnly(['lastVisit','visits','active','lastSeen','lastItemId'])
+           && (request.resource.data.lastVisit is int    && request.resource.data.lastVisit >= 0)
+           && (request.resource.data.visits    is int    && request.resource.data.visits    >= 0)
+           && (request.resource.data.active    is int    && request.resource.data.active    >= 0)
+           && (request.resource.data.lastItemId is string
+               || !request.resource.data.keys().hasAny(['lastItemId']))
+           && (request.resource.data.lastSeen is timestamp
+               || !request.resource.data.keys().hasAny(['lastSeen']));
+      }
+
+       function _serialIndexInvariantOk() {
+        let vNew  = request.resource.data.visits;
+        let lvNew = request.resource.data.lastVisit;
+        let aNew  = request.resource.data.active;
+
+        // Grundkrav: visits == lastVisit och visits ≥ active
+        let okCore = (vNew == lvNew) && (vNew >= aNew);
+
+        // Om dokumentet finns: tillåt
+        // - Ökning eller oförändrat (NY bas / soft/undo-delete)
+        // - Kontrollerad minskning (EDIT: gammal bas) där både visits och lastVisit minskar och active inte ökar
+        return okCore && (
+          !exists(/databases/$(database)/documents/serialIndex/$(serialKey))
+          || (
+            (vNew >= resource.data.visits && lvNew >= resource.data.lastVisit) // ökning/oförändrat
+            || (vNew == resource.data.visits && lvNew == resource.data.lastVisit) // oförändrat
+          )
+        );
+      }
+    }
+
+
+    // Serial claims (under serialIndex)
+    match /serialIndex/{serialKey}/claims/{visit} {
+      allow create: if isSignedIn()
+        && !exists(/databases/$(database)/documents/serialIndex/$(serialKey)/claims/$(visit));
+      allow read: if isSignedIn();
+      // delete av enskilda claims endast admin (för dev/wipe)
+      allow delete: if isAdmin();
+    }
+
+    // Produkttyper (admin skriver; alla inloggade läser)
+    match /productTypes/{id} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Fakturarapporter
+    match /reports/{root}/fakturor/{reportId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ===== Rapporter: manifests (skrivs vid export) =====
+    match /reports_manifests/{manifestId} {
+      // Endast admin får skapa/läsa/uppdatera manifest
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+
+      // Ingen hard delete från klienten (behåll spårbarhet)
+      allow delete: if false;
+    }
+
+
+    // Stödsamlingar
+    match /manufacturers/{id} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
+    }
+    match /models/{id} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
+    }
+    match /customers/{id} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
+    }
+
+    // Artiklar – toppnivå
+    match /articles/{id} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
+    }
+    // Artiklar under kund (om ni använder denna struktur)
+    match /customers/{custId}/articles/{articleId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
+    }
+
+    // Default: read-only för inloggade (ingen write om inget annat matchar)
+    match /{document=**} {
+      allow read: if isSignedIn();
+    }
+  }
+}

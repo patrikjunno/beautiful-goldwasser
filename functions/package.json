@@ -1,0 +1,26 @@
+{
+  "name": "functions",
+  "private": "true",
+  "main": "lib/index.js",
+  "engines": {
+    "node": "20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint --ext .ts .",
+    "serve": "firebase emulators:start --only functions",
+    "deploy": "firebase deploy --only functions"
+  },
+  "dependencies": {
+    "@sparticuz/chromium": "^133.0.0",
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^6.2.0",
+    "puppeteer-core": "^23.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "eslint": "^9.10.0",
+    "typescript": "^5.4.0"
+  },
+  "license": "UNLICENSED"
+}

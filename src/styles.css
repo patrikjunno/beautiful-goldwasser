@@ -1,0 +1,1474 @@
+/* =========================================================
+   Goldwasser UI — styles.css (clean + themable)
+   ========================================================= */
+
+/* ---------- Theme tokens ---------- */
+:root {
+  /* Lås native widgets till ljust läge när appen är ljus */
+  color-scheme: light;
+
+  /* Brand */
+  --primary: #0B5CFF;
+  --primary-600: #0A52E6;
+  --danger: #B82136;
+  --danger-600: #9E1C2D;
+
+  /* LIGHT (default) */
+  --bg: #f7f8fb;
+  --surface: #ffffff;
+  --surface-2: #f1f5f9;
+  --text: #0e1116;
+  --muted: #5d6470;
+  --border: #e2e6ee;
+  --overlay: rgba(0, 0, 0, .45);
+
+  /* Shape / depth */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, .06);
+  --shadow-md: 0 2px 8px rgba(16, 24, 40, .08);
+
+  /* Focus */
+  --focus-ring: rgba(11, 92, 255, .22);
+}
+
+:root[data-theme="dark"] {
+  /* Lås native widgets till mörkt läge när appen är mörk */
+  color-scheme: dark;
+
+  --bg: #0b1220;
+  --surface: #0f172a;
+  --surface-2: #111827;
+  --text: #e5e7eb;
+  --muted: #9aa3af;
+  --border: #1f2937;
+  --overlay: rgba(0, 0, 0, .6);
+
+  --primary: #60a5fa;
+  --primary-600: #3b82f6;
+  --danger: #ef4444;
+  --danger-600: #dc2626;
+
+  --focus-ring: rgba(96, 165, 250, .28);
+}
+
+:root {
+  --btn-disabled-bg: #eef2f7;
+  --btn-disabled-text: #6b7280;
+  --btn-disabled-border: #d7dde7;
+}
+:root[data-theme="dark"] {
+  --btn-disabled-bg: #1f2937;   /* slate-800 */
+  --btn-disabled-text: #9aa3af; /* gray-400 */
+  --btn-disabled-border: #374151;/* slate-700 */
+}
+
+/* --- Banner tokens (light + dark) --- */
+:root {
+  --warn-bg: #FFF7D6;
+  --warn-border: #F5E6A7;
+  --warn-text: #6b4e00;
+
+  --danger-bg: #FEE2E2;
+  --danger-border: #FCA5A5;
+  --danger-text: #7f1d1d;
+}
+
+:root[data-theme="dark"] {
+  /* mjuka, halvtransparenta ytor i mörkt läge */
+  --warn-bg: rgba(250, 204, 21, 0.16);
+  /* amber-400 bakgrund */
+  --warn-border: rgba(250, 204, 21, 0.35);
+  --warn-text: #fde68a;
+  /* ljus varningstext */
+
+  --danger-bg: rgba(239, 68, 68, 0.18);
+  /* red-500 bakgrund */
+  --danger-border: rgba(239, 68, 68, 0.40);
+  --danger-text: #fecaca;
+}
+
+/* --- Banner base + modifiers --- */
+.gw-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--warn-border);
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  border-radius: var(--radius-sm);
+  margin: 8px 0 12px;
+}
+
+.gw-banner>strong {
+  font-weight: 700;
+}
+
+.gw-banner .btn {
+  margin-left: auto;
+}
+
+.gw-banner--warn {
+  /* använder base-färgerna ovan */
+}
+
+.gw-banner--danger {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger-text);
+}
+
+
+/* --- Row state tokens --- */
+:root {
+  /* “Färdig”-rader (ready) – diskret blåton i ljust tema */
+  --row-ready-bg: rgba(11, 92, 255, 0.06);
+  --row-ready-border: rgba(11, 92, 255, 0.28);
+
+  /* “Fakturerade” (invoiced) – neutralt grått */
+  --row-invoiced-bg: var(--surface-2);
+}
+
+:root[data-theme="dark"] {
+  /* starkare ton i mörkt tema så det syns mot mörk bakgrund */
+  --row-ready-bg: rgba(96, 165, 250, 0.12);
+  --row-ready-border: rgba(96, 165, 250, 0.35);
+
+  --row-invoiced-bg: #101a2f;
+  /* lite mörkare än surface-2 för tydlig skillnad */
+}
+
+/* --- Desktop-tabell: tillämpa färgerna --- */
+tbody tr.row-ready {
+  background: var(--row-ready-bg);
+}
+
+tbody tr.row-ready:hover {
+  background: var(--row-ready-bg);
+  /* behåll samma ton vid hover */
+}
+
+tbody tr.row-invoiced {
+  background: var(--row-invoiced-bg);
+  color: var(--muted);
+}
+
+tbody tr.row-invoiced a,
+tbody tr.row-invoiced button {
+  /* se till att serienummer-knappen är tydlig */
+  opacity: 1;
+}
+
+/* (valfritt) ge en liten vänsterkant-markering på ready för bättre “scan” */
+tbody tr.row-ready td:first-child {
+  box-shadow: inset 3px 0 0 0 var(--row-ready-border);
+}
+
+
+
+/* ---------- Base + typography ---------- */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* App wrapper */
+.goldwasser-app {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* ---------- Layout ---------- */
+.gw-shell {
+  position: relative;
+  min-height: 100%;
+}
+
+.gw-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.gw-topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Headings */
+.gw-h1 {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 12px;
+}
+
+.gw-h3 {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0 0 10px;
+}
+
+/* ---------- Cards ---------- */
+.gw-card {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 16px;
+}
+
+/* ---------- Form controls ---------- */
+.gw-input,
+.goldwasser-app input[type="text"],
+.goldwasser-app input[type="number"],
+.goldwasser-app input[type="email"],
+.goldwasser-app input[type="password"],
+.goldwasser-app select,
+.goldwasser-app textarea {
+  width: 100%;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease, color .15s ease;
+}
+
+.goldwasser-app ::placeholder {
+  color: var(--muted);
+}
+
+.gw-input:focus,
+.goldwasser-app input:focus,
+.goldwasser-app select:focus,
+.goldwasser-app textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+  outline: none;
+}
+
+/* Filter inputs (mobil-listan) */
+.filter-input {
+  width: 100%;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+
+/* Actions-rad */
+.gw-actions {
+  margin-top: 14px;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+/* ---------- Buttons ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: filter .12s ease, background .12s ease, border-color .12s ease;
+}
+
+.btn:hover {
+  filter: brightness(0.98);
+}
+
+/* NEW */
+.btn:disabled,
+.btn[disabled] {
+  opacity: 1;              /* keep text legible */
+  filter: none;
+  cursor: not-allowed;
+  background: var(--btn-disabled-bg) !important;
+  color: var(--btn-disabled-text) !important;
+  border-color: var(--btn-disabled-border) !important;
+  box-shadow: none;
+}
+
+/* make variants inherit the same disabled look */
+.btn-primary:disabled,
+.btn-danger:disabled,
+.btn-secondary:disabled {
+  background: var(--btn-disabled-bg) !important;
+  color: var(--btn-disabled-text) !important;
+  border-color: var(--btn-disabled-border) !important;
+}
+
+.btn-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: var(--primary-600);
+  border-color: var(--primary-600);
+}
+
+.btn-secondary {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.btn-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+.btn-danger:hover {
+  background: var(--danger-600);
+  border-color: var(--danger-600);
+}
+
+.btn-danger.is-active {
+  box-shadow: 0 0 0 3px rgba(184, 33, 54, .25);
+}
+
+/* Menu button (ikon) */
+.gw-menu-btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 10px;
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ---------- Tables ---------- */
+/* Wrap för att undvika overflow höger */
+.gw-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+/* gör tabellen lite bredare än korta layouter */
+.gw-table-wrap table {
+  min-width: 1000px;
+}
+
+table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  /* runda hörn */
+}
+
+thead tr {
+  background: var(--surface-2);
+}
+
+th,
+td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  vertical-align: middle;
+}
+
+/* robust hover utan color-mix-krav */
+tbody tr:hover {
+  background: rgba(0, 0, 0, .03);
+}
+
+:root[data-theme="dark"] tbody tr:hover {
+  background: rgba(255, 255, 255, .04);
+}
+
+.td-narrow {
+  width: 1%;
+  white-space: nowrap;
+}
+
+/* ---------- Modal ---------- */
+/* Overlay: centrera, ingen egen scroll */
+.gw-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: var(--overlay);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  overflow: hidden;
+  /* <— viktig: ingen overlay-scroll */
+}
+
+/* Kortet ryms alltid i viewporten */
+.gw-modal-card {
+  width: min(560px, 92vw);
+  height: 92vh;
+  /* <— begränsa höjd */
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  padding: 0;
+  /* vi lägger padding på header/body/footer */
+  overflow: hidden;
+  /* <— förhindra att något sticker ut */
+}
+
+.gw-modal-title {
+  margin: 0 0 8px;
+  font-weight: 700;
+}
+
+.gw-modal-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ---------- Side menu (overlay + panel) ---------- */
+.gw-menu-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: var(--overlay);
+  /* lätt separation från panelen även på mörkt */
+  backdrop-filter: saturate(115%) blur(1px);
+}
+
+.gw-side-menu {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 280px;
+  max-width: 85vw;
+  background: var(--surface);
+  color: var(--text);
+  border-right: 1px solid var(--border);
+  box-shadow: 2px 0 12px rgba(0, 0, 0, .18);
+  padding: 16px;
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.gw-side-menu .menu-header {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.gw-side-menu .menu-list {
+  display: grid;
+  gap: 8px;
+  overflow: auto;
+}
+
+.gw-side-menu .menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+}
+
+.gw-side-menu .menu-item:hover,
+.gw-side-menu .menu-item.is-active {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+
+.gw-side-menu .menu-footer {
+  margin-top: auto;
+}
+
+/* ---------- Photo grid ---------- */
+.gw-photo-grid {
+  --thumb-h: 110px;
+}
+
+/* var 160px */
+@media (max-height: 900px) {
+  .gw-photo-grid {
+    --thumb-h: 100px;
+  }
+}
+
+@media (max-height: 800px) {
+  .gw-photo-grid {
+    --thumb-h: 90px;
+  }
+}
+
+@media (max-height: 720px) {
+  .gw-photo-grid {
+    --thumb-h: 80px;
+  }
+}
+
+.gw-photo-card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+}
+
+.gw-photo-img {
+  width: 100%;
+  height: var(--thumb-h);
+  /* var 160px */
+  object-fit: cover;
+  border-radius: calc(var(--radius-sm) - 2px);
+  display: block;
+}
+
+.gw-photo-placeholder {
+  height: var(--thumb-h);
+  /* var 160px */
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--border);
+  border-radius: calc(var(--radius-sm) - 2px);
+  color: var(--muted);
+  background: var(--surface-2);
+  text-align: center;
+}
+
+.gw-photo-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  border: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+.gw-photo-title {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* EditModal: alltid 4 i bredd */
+.gw-modal-card .gw-photo-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* Kompaktare thumbnails (mindre gap/padding/höjd/label) */
+.gw-photo-grid {
+  gap: 8px;
+}
+
+.gw-photo-card {
+  padding: 8px;
+}
+
+.gw-photo-img,
+.gw-photo-placeholder {
+  height: 90px;
+}
+
+/* var 160px */
+.gw-photo-title {
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+/* ---------- Badges ---------- */
+.gw-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+}
+
+/* ---------- Utilities ---------- */
+.mt-6 {
+  margin-top: 24px;
+}
+
+.mb-2 {
+  margin-bottom: 8px;
+}
+
+.text-muted {
+  color: var(--muted);
+}
+
+.center {
+  display: grid;
+  place-items: center;
+}
+
+.hidden {
+  display: none !important;
+}
+
+@media (max-width: 860px) {
+  .gw-container {
+    padding: 16px;
+  }
+}
+
+/* ---------- Progress overlay (save) ---------- */
+.gw-progress-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, .7);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  z-index: 10;
+  border-radius: var(--radius-md);
+}
+
+:root[data-theme="dark"] .gw-progress-overlay {
+  background: rgba(0, 0, 0, .35);
+}
+
+.gw-progress-track {
+  width: 80%;
+  height: 8px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.gw-progress-fill {
+  height: 100%;
+  background: var(--primary);
+  transition: width 200ms linear;
+}
+
+/* ---------- Step dots ---------- */
+.step-dots {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.step-dots .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.step-dots .dot.is-active {
+  background: var(--primary);
+}
+
+/* Gemensam innehållsbredd (centrerad) */
+.gw-content {
+  width: min(1100px, calc(100% - 48px));
+  margin: 0 auto;
+}
+
+@media (max-width: 640px) {
+  .gw-content {
+    width: calc(100% - 24px);
+  }
+}
+
+/* Sektioner + rubrikrad med actions */
+.gw-section {
+  margin-top: 24px;
+}
+
+.gw-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.gw-section-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+/* (valfritt) gör tabell wrap följsam men centrerad */
+.gw-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+@media (min-width: 900px) {
+  .goldwasser-app .gw-shell {
+    margin-left: 0;
+    margin-right: 0;
+  }
+}
+
+/* --- state-bakgrunder --- */
+:root {
+  --row-ready-bg: rgba(11, 92, 255, .08);
+  --row-invoiced-bg: rgba(0, 0, 0, .04);
+}
+
+:root[data-theme="dark"] {
+  --row-ready-bg: rgba(96, 165, 250, .15);
+  --row-invoiced-bg: rgba(255, 255, 255, .06);
+}
+
+/* --- bas-stil för mobilkort (flyttar från inline) --- */
+.mobile-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background: var(--surface);
+  margin-bottom: 12px;
+}
+
+/* layout för mobilkortets innehåll */
+.mobile-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.mobile-row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  column-gap: 8px;
+  row-gap: 6px;
+}
+
+.mobile-label {
+  color: var(--muted);
+}
+
+/* --- delad state-styling: tabellrader OCH mobilkort --- */
+table tbody tr.row-ready,
+.mobile-card.row-ready {
+  background: var(--row-ready-bg);
+}
+
+table tbody tr.row-invoiced,
+.mobile-card.row-invoiced {
+  background: var(--row-invoiced-bg);
+  color: var(--muted);
+}
+
+/* Valfritt: tona ner interaktioner i fakturerat läge, men låt serienummerknappen vara klickbar */
+.mobile-card.row-invoiced input[type="checkbox"] {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+/* ===== EditModal – sektionerad layout (använder dina tokens) ===== */
+.gw-form-grid-2 {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 768px) {
+  .gw-form-grid-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.gw-form-span2 {
+  grid-column: 1 / -1;
+}
+
+.gw-status-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.gw-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.gw-log {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+/* ===== EditModal — två-kolumnsform ===== */
+.gw-form-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+@media (min-width: 760px) {
+  .gw-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.gw-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gw-form-row-full {
+  grid-column: 1 / -1;
+}
+
+.gw-form-label {
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.gw-check-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Scrollbar “logg”-låda (matchar din stil) */
+.gw-logbox {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+}
+
+.gw-mb-16 {
+  margin-bottom: 16px;
+}
+
+/* eller lite mer responsivt:
+.gw-mb-footer { margin-bottom: clamp(12px, 2.5vw, 24px); } */
+
+/* Clearable inputs (små X-knappar i sökfält) */
+.gw-clearable {
+  position: relative;
+  display: block;
+}
+
+.gw-clearable>input {
+  padding-right: 28px;
+  /* ge plats för X-knappen */
+}
+
+.gw-clear-btn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 2px 4px;
+  line-height: 1;
+  font-size: 16px;
+  color: #6b7280;
+  border-radius: 4px;
+}
+
+.gw-clear-btn:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+/* ClearableInput */
+.clearable {
+  position: relative;
+}
+
+.clearable .clear-btn {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  color: #6b7280;
+  /* gray-500 */
+  padding: 0 2px;
+}
+
+.clearable .clear-btn:hover {
+  color: #111827;
+  /* gray-900 */
+}
+
+.clearable input.gw-input,
+.clearable input.filter-input {
+  padding-right: 28px;
+  /* plats för ×-knappen */
+}
+
+/* Håll menyknappen alltid synlig högst upp till vänster */
+.gw-menu-btn {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 900;
+  /* under sidomenyns overlay (som har ~1000), men över sidinnehåll */
+}
+
+/* Wide variant (EditModal) – sticky header/footer + egen scroller för body */
+.gw-modal-card--wide {
+  max-height: min(92vh, 100%);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  /* vi flyttar padding till header/body/footer */
+}
+
+.gw-modal-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 16px;
+}
+
+/* Body: ingen scroll här – vi låter logg-sektionen ta överskott och scrolla */
+.gw-modal-body {
+  flex: 1;
+  /* fyll utrymmet mellan header och footer */
+  min-height: 0;
+  /* för flex-shrink att funka */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+  /* <— kritiskt: ingen scroll i body */
+}
+
+.gw-modal-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Loggsektion: tar all återstående höjd och scrollar internt */
+.gw-log-section {
+  flex: 1 0 220px;
+  /* <-- reservera höjd så den inte “försvinner” */
+  min-height: 200px;
+  /* lite basyta även när det är trångt */
+  display: flex;
+  flex-direction: column;
+}
+
+.gw-log-scroll {
+  flex: 1 1 auto;
+  overflow: auto;
+  /* <— den ENDA scrollen */
+}
+
+/* --- EditModal: tvinga 4 kolumner och komprimera rutor --- */
+.gw-modal-card .gw-photo-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  /* <-- tvinga 4 */
+  gap: 8px;
+}
+
+.gw-modal-card .gw-photo-card {
+  padding: 8px;
+}
+
+.gw-modal-card .gw-photo-img,
+.gw-modal-card .gw-photo-placeholder {
+  height: 90px;
+}
+
+.gw-modal-card .gw-photo-title {
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+/* --- EditModal: 4 kolumner + kompaktare rutor (sista reglerna ska vinna) --- */
+.gw-modal-card .gw-photo-grid {
+  display: grid;
+  /* bälte och hängslen */
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 8px;
+}
+
+.gw-modal-card .gw-photo-card {
+  padding: 8px;
+}
+
+.gw-modal-card .gw-photo-img,
+.gw-modal-card .gw-photo-placeholder {
+  height: 90px;
+}
+
+.gw-modal-card .gw-photo-title {
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+/* Enhetlig inner-marginal (vänster/höger) i modalen */
+.gw-modal-header {
+  padding: 14px 20px;
+}
+
+/* var 14px 16px */
+.gw-modal-body {
+  padding: 12px 20px 16px;
+}
+
+/* var 16px */
+.gw-modal-footer {
+  padding: 12px 20px;
+}
+
+/* var 12px 16px */
+
+/* (valfritt) lite extra luft för sektionstitlar som "Bilder", "Logg" */
+.gw-form-grid,
+.gw-log-section {
+  margin-inline: 0;
+}
+
+/* se till att inget negativt påverkar guttern */
+
+/* Kompakt tvåkolumnsrad för status + gradering */
+.gw-form-row-compact {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  margin-bottom: 0;
+}
+
+.gw-inline-checks {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 640px) {
+  .gw-form-row-compact {
+    flex-direction: column;
+  }
+}
+
+/* Aligna "Status" och "Gradering" i samma topp-linje */
+.gw-form-row-compact {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  /* var flex-end → gav förskjutning */
+}
+
+/* Säker och jämn label/avstånd i båda halvorna */
+.gw-form-row-compact .gw-form-field {
+  display: flex;
+  flex-direction: column;
+}
+
+.gw-form-row-compact .gw-form-label {
+  margin-bottom: 6px;
+  /* liten, konsekvent label-spacer */
+}
+
+.gw-inline-checks {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: center;
+  /* centrera checkbox + text vertikalt */
+}
+
+/* Öka bredden på EditModal så allt får plats på en rad */
+.gw-modal-card--wide {
+  width: min(720px, 96vw);
+  /* justera vid behov: 720–780px funkar bra */
+}
+
+/* Tvinga status-kryss till EN rad */
+.gw-form-row-compact .gw-form-field:first-child .gw-inline-checks {
+  flex-wrap: nowrap;
+  /* inget radbyte */
+  gap: 12px;
+}
+
+.gw-form-row-compact .gw-form-field:first-child .gw-check-inline {
+  white-space: nowrap;
+  /* håll text + box ihop */
+}
+
+/* Smalare EditModal men ändå rymlig */
+.gw-modal-card--wide {
+  width: min(620px, 96vw);
+  /* var 740px – justera vid behov 600–640 */
+}
+
+/* Rad med två kolumner: Status 2/3, Gradering 1/3 */
+.gw-form-row-compact {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.gw-form-row-compact .gw-form-field:first-child {
+  flex: 0 1 64%;
+}
+
+/* Status */
+.gw-form-row-compact .gw-form-field:last-child {
+  flex: 0 1 36%;
+}
+
+/* Gradering */
+
+/* Tvinga status-kryssen till EN rad, lite tightare spacing/typografi */
+.gw-form-row-compact .gw-form-field:first-child .gw-inline-checks {
+  flex-wrap: nowrap;
+  gap: 12px;
+}
+
+.gw-form-row-compact .gw-check-inline {
+  white-space: nowrap;
+}
+
+.gw-form-row-compact .gw-check-inline span {
+  font-size: 13px;
+}
+
+/* Status/Gradering: finjustera kolumnbredd så höger-sidan får luft */
+.gw-form-row-compact .gw-form-field:first-child {
+  flex: 0 1 68%;
+}
+
+/* Status */
+.gw-form-row-compact .gw-form-field:last-child {
+  flex: 0 1 32%;
+}
+
+/* Gradering */
+
+.gw-form-row-compact .gw-form-field:last-child .gw-inline-checks {
+  justify-content: flex-start;
+  gap: 12px;
+  /* lite tajtare mellan A–D */
+}
+
+/* (om det fortfarande känns nära, lägg en pytteliten intern buffer) */
+/* .gw-form-row-compact .gw-form-field:last-child { padding-right: 4px; } */
+/* Samma inner-gutter på båda sidor */
+:root {
+  --modal-gutter: 20px;
+}
+
+/* (du har redan kroppspadding – denna rad är bara för att vara explicit) */
+.gw-modal-body {
+  padding-left: var(--modal-gutter);
+  padding-right: var(--modal-gutter);
+}
+
+/* Ge Gradering-raden en högermarginal = vänsterguttern */
+.gw-form-row-compact .gw-form-field:last-child .gw-inline-checks {
+  padding-right: var(--modal-gutter);
+  box-sizing: border-box;
+  justify-content: flex-start;
+  /* behåll normal tätning mellan A–D */
+  gap: 12px;
+}
+
+/* Säkerställ att inga etikettmarginaler sabbar jämnheten */
+.gw-form-row-compact .gw-check-inline {
+  margin: 0;
+}
+
+/* Bordered fieldset som matchar övriga fält */
+.gw-fieldset {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  min-inline-size: 0;
+  background: transparent;
+  /* byt till var(--surface-2) om du vill ha svag panelbakgrund */
+}
+
+.gw-fieldset-legend {
+  margin: 0 0 8px;
+  padding: 0 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* Håll status på en rad, gradering normal */
+.gw-form-row-compact .gw-fieldset:first-child .gw-inline-checks {
+  flex-wrap: nowrap;
+  gap: 12px;
+}
+
+.gw-form-row-compact .gw-check-inline {
+  white-space: nowrap;
+}
+
+/* Endast skador-fältet, inte alla textareas */
+.gw-modal-body textarea[name="damageNotes"] {
+  min-height: 40px !important;
+}
+
+/* ≈ en rad */
+
+/* Snabbinmatning: tät grid */
+.gw-form-grid--quick {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 1200px) {
+  .gw-form-grid--quick { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* Kolumn-spans för quick-layouten */
+.gw-col-2 { grid-column: span 2; }
+@media (max-width: 1200px) { .gw-col-2 { grid-column: span 1; } }
+
+.gw-col-3 { grid-column: span 3; }  /* full rad i 3-kolumnsläget också */
+@media (max-width: 1200px) { .gw-col-3 { grid-column: span 3; } }
+
+/* Snabbinmatning: 6 kolumner på bred skärm, bryts till 3 */
+.gw-form-grid.gw-form-grid--quick {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 1200px) {
+  .gw-form-grid.gw-form-grid--quick {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Kolumn-spans */
+.gw-col-1 { grid-column: span 1; }
+.gw-col-2 { grid-column: span 2; }
+.gw-col-3 { grid-column: span 3; }
+.gw-col-6 { grid-column: 1 / -1; } /* full rad */
+
+/* Quick-läge: kompakt fotogrid, 2 x 2 */
+.gw-photo-grid--quick {
+  --thumb-h: 78px;              /* mindre höjd */
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.gw-photo-grid--quick .gw-photo-card { padding: 6px; }
+.gw-photo-grid--quick .gw-photo-img,
+.gw-photo-grid--quick .gw-photo-placeholder {
+  height: var(--thumb-h);
+}
+.gw-photo-grid--quick .gw-photo-title {
+  margin-top: 4px;
+  font-size: 11px;
+}
+
+/* 6-kolumners grid för snabbinmatning + span utilities */
+.gw-form-grid--quick { 
+  display: grid; 
+  grid-template-columns: repeat(6, minmax(0,1fr)); 
+  gap: 12px; 
+}
+.gw-form-grid--quick .gw-col-1 { grid-column: span 1; }
+.gw-form-grid--quick .gw-col-2 { grid-column: span 2; }
+.gw-form-grid--quick .gw-col-3 { grid-column: span 3; }
+.gw-form-grid--quick .gw-col-4 { grid-column: span 4; }
+.gw-form-grid--quick .gw-col-5 { grid-column: span 5; }
+.gw-form-grid--quick .gw-col-6 { grid-column: span 6; }
+
+/* Quick-läge: kompakt fotogrid 2×2 */
+.gw-photo-grid--quick {
+  --thumb-h: 78px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.gw-photo-grid--quick .gw-photo-card { padding: 6px; }
+.gw-photo-grid--quick .gw-photo-img,
+.gw-photo-grid--quick .gw-photo-placeholder { height: var(--thumb-h); }
+.gw-photo-grid--quick .gw-photo-title { margin-top: 4px; font-size: 11px; }
+
+/* QuickEntry: responsiv fotogrid 4→2×2→1×4 utan horisontell scroll */
+.gw-photo-grid--auto {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(95px, 1fr));
+  gap: 8px;
+}
+/* ===== Login (ärver färger från dina tokens) ===== */
+.login-screen{
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg);
+}
+
+/* Bara storlek/layout – själva färgerna kommer från .gw-card */
+.login-card{
+  width: min(520px, 92vw);
+  padding: 20px;
+}
+.login-card h2{ margin: 0 0 16px; color: var(--text); }
+
+/* --- Fix: EditModal log on short screens --- */
+@media (max-height: 860px) {
+  /* let the whole modal body scroll when space is tight */
+  .gw-modal-body {
+    overflow: auto;
+  }
+
+  /* don’t force the log section to reserve extra space */
+  .gw-log-section {
+    flex: 0 0 auto;
+    min-height: 140px; /* was 200–220px; smaller so it fits */
+  }
+
+  /* ensure the inner log stays scrollable */
+  .gw-log-scroll {
+    max-height: 40vh;     /* cap height so you can scroll it */
+    overflow: auto;       /* explicit just in case */
+  }
+}
+
+/* Smalare modal-kort för rapporter */
+.gw-modal-card--narrow {
+  max-width: 420px;
+  padding: 16px 20px;
+}
+
+.gw-modal-card--narrow .gw-modal-title {
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+
+.gw-modal-card--narrow p {
+  font-size: 14px;
+  margin: 8px 0 12px;
+}
+
+/* ---- Selectable pills for filters ---- */
+.gw-pill {
+  display: inline-block;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease, border-color .12s ease, box-shadow .12s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gw-pill:hover {
+  background: var(--surface-2);
+}
+
+.gw-pill.is-selected {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+.gw-pill:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+
+
+
+
+
+
+

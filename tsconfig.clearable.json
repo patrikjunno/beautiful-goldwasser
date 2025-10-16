@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "jsx": "react-jsx",
+    "target": "ES2019",
+    "lib": ["ES2019", "DOM"],
+    "moduleResolution": "node",
+    "types": ["react", "react-dom"]
+  },
+  "include": [
+    "src/App.tsx",
+    "src/components/ClearableInput.tsx",
+    "src/components/edit/EditModal.tsx"   // <— lägg till denna rad
+  ],
+  "exclude": []
+}
