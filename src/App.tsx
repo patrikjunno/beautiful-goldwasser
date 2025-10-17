@@ -64,6 +64,9 @@ import {
   validateCompletionChoice as impactValidateCompletionChoice,
 } from "./lib/impact";
 import type { PreparedImpactDisplay, ProductType, RawImpactItem } from "./lib/impact";
+import { computeBillingSteps, buildInvoiceSummary } from "./lib/billing";
+import type { InvoiceSummary } from "./lib/billing";
+import { REPORTS_COLLECTION, INVOICE_SUBCOLLECTION } from "./lib/reports";
 
 // Firebase app bindings
 import { auth, db, storage } from "./firebase";
@@ -131,6 +134,7 @@ import { getFunctions, httpsCallable } from "firebase/functions";
 
 // Styles
 import "./styles.css";
+
 
 
 // ──────────────────────────────────────────────────────────────
@@ -356,55 +360,9 @@ type PhotoURLMap = Record<string, string>;
 
 type FirestoreDate = string | Date | Timestamp | null | undefined;
 
-// === Fakturering: summeringstyp + helper ===
-type InvoiceSummary = {
-  totalItems: number;
-  reusedCount: number;
-  resoldCount: number;
-  scrappedCount: number;
-};
-
-function buildInvoiceSummary(items: Array<Item>): InvoiceSummary {
-  let reused = 0, resold = 0, scrapped = 0;
-
-  for (const it of items) {
-    const anyIt = it as any;
-
-    const outcome =
-      (typeof anyIt.completedOutcome === "string" && anyIt.completedOutcome.toLowerCase()) || null;
-
-    const isReused =
-      anyIt.reuse === true || anyIt.återbruk === true || outcome === "återbruk" || outcome === "reused";
-    const isResold =
-      anyIt.resold === true || anyIt.vidaressålt === true || outcome === "vidaressålt" || outcome === "resold";
-    const isScrapped =
-      anyIt.scrap === true || anyIt.skrotad === true || outcome === "skrotad" || outcome === "scrapped";
-
-    if (isReused) reused++;
-    if (isResold) resold++;
-    if (isScrapped) scrapped++;
-  }
-
-  return {
-    totalItems: items.length,
-    reusedCount: reused,
-    resoldCount: resold,
-    scrappedCount: scrapped,
-  };
-}
 
 
-type InvoiceReport = {
-  name: string;                 // "Kund YYMMDDHHMM"
-  customer: string;             // exakt en kund per rapport (krav)
-  createdAt: string;            // ISO
-  createdBy: string | null;     // e-post/uid om du har
-  itemIds: string[];            // markerade objekt som låses vid fakturering
-  summary: InvoiceSummary;      // summering högst upp i rapporten
-};
 
-const REPORTS_COLLECTION = "reports";
-const INVOICE_SUBCOLLECTION = "fakturor";
 
 
 type AuditAction = "created" | "updated" | "completed" | "reopened" | "delete_marked" | "delete_unmarked";
@@ -414,16 +372,6 @@ interface AuditEntry {
   at: string; // ISO
 }
 
-// ---- Fakturering: härledda kolumner (1/0) från reuse/resold/scrap ----
-type BillingSteps = {
-  f3Procedure: number;
-  endpointRemoval: number;
-  osReinstall: number;
-  endpointWipe: number;
-  postWipeBootTest: number;
-  dataErasure: number;
-  refurbish: number;
-};
 
 /** Normalisera serienummer för indexnyckel (race-säker unikhet per nummer) */
 function normalizeSerial(s: unknown): string {
@@ -443,57 +391,7 @@ function splitSerialParts(s: string) {
   return { base, visit };
 }
 
-function computeBillingSteps(opts: { reuse?: boolean; resold?: boolean; scrap?: boolean }): BillingSteps {
-  const { reuse, resold, scrap } = opts;
 
-  if (reuse) {
-    // Återbruk
-    return {
-      f3Procedure: 0,
-      endpointRemoval: 1,
-      osReinstall: 1,
-      endpointWipe: 0,
-      postWipeBootTest: 0,
-      dataErasure: 0,
-      refurbish: 1,
-    };
-  }
-  if (resold) {
-    // Vidaresålt
-    return {
-      f3Procedure: 0,
-      endpointRemoval: 1,
-      osReinstall: 0,
-      endpointWipe: 1,
-      postWipeBootTest: 0,
-      dataErasure: 1,
-      refurbish: 1,
-    };
-  }
-  if (scrap) {
-    // Skrot
-    return {
-      f3Procedure: 0,
-      endpointRemoval: 1,
-      osReinstall: 0,
-      endpointWipe: 1,
-      postWipeBootTest: 0,
-      dataErasure: 1,
-      refurbish: 0,
-    };
-  }
-
-  // Inget valt ännu → allt 0
-  return {
-    f3Procedure: 0,
-    endpointRemoval: 0,
-    osReinstall: 0,
-    endpointWipe: 0,
-    postWipeBootTest: 0,
-    dataErasure: 0,
-    refurbish: 0,
-  };
-}
 
 // ===== Fakturering: skapa rapport från markerade poster (ID-baserad kund) =====
 async function generateInvoiceReportForMarkedItems(
@@ -8465,29 +8363,35 @@ export default function App(): JSX.Element {
               </>
             )}
 
-            {activePage === "fakturering" && (
-              <InvoicingPage
-                user={user}
-                isCustomer={isCustomer}
-                billingCustomerFilter={billingCustomerFilter}
-                setBillingCustomerFilter={setBillingCustomerFilter}
-                billingFilteredItems={billingFilteredItems}
-                allFilteredMarked={allFilteredMarked}
-                isMarkingAll={isMarkingAll}
-                creatingReport={creatingReport}
-                setCreatingReport={setCreatingReport}
-                toggleMarkAllInFiltered={toggleMarkAllInFiltered}
-                setMarkedForInvoice={setMarkedForInvoice}
-                updateItemsState={(updater) => setItems(prev => updater(prev as any) as any)}
-                customerListOpts={customerListOpts}
-                computeBillingSteps={computeBillingSteps}
-                fmtDateOnly={fmtDateOnly}
-                formatSerialForDisplay={formatSerialForDisplay}
-                toEpochMillis={toEpochMillis}
-                createInvoiceReportCF={createInvoiceReportCF}
-                fetchFirstPage={fetchFirstPage}
-              />
-            )}
+              {activePage === "fakturering" && (
+                <InvoicingPage
+                  user={user}
+                  isCustomer={isCustomer}
+                  billingCustomerFilter={billingCustomerFilter}
+                  setBillingCustomerFilter={setBillingCustomerFilter}
+                  billingFilteredItems={billingFilteredItems}
+                  allFilteredMarked={allFilteredMarked}
+                  isMarkingAll={isMarkingAll}
+                  creatingReport={creatingReport}
+                  setCreatingReport={setCreatingReport}
+                  toggleMarkAllInFiltered={toggleMarkAllInFiltered}
+                  setMarkedForInvoice={setMarkedForInvoice}
+                  updateItemsState={(updater) => setItems(prev => updater(prev as any) as any)}
+                  customerListOpts={customerListOpts}
+                  computeBillingSteps={computeBillingSteps}
+                  fmtDateOnly={fmtDateOnly}
+                  formatSerialForDisplay={formatSerialForDisplay}
+                  toEpochMillis={toEpochMillis}
+                  createInvoiceReportCF={createInvoiceReportCF}
+                  createInvoiceReportLocal={async () =>
+                    generateInvoiceReportForMarkedItems(
+                      (items as any[]).filter((it: any) => it?.completed === true),
+                      user?.email ?? null
+                    )
+                  }
+                  fetchFirstPage={fetchFirstPage}
+                />
+              )}
 
 
             {/* ANVÄNDARE (endast admin) */}

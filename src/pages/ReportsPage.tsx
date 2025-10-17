@@ -8,19 +8,18 @@ import {
 } from "firebase/firestore";
 import { httpsCallable, getFunctions } from "firebase/functions";
 import { db } from "../firebase";
+import { computeBillingSteps } from "../lib/billing";
+import { normalizeSummaryCounts } from "../lib/billing";
+import type { InvoiceSummary, BillingSteps } from "../lib/billing";
+import { REPORTS_COLLECTION, INVOICE_SUBCOLLECTION, FN_DELETE_INVOICE_REPORT } from "../lib/reports";
+
 
 /* ===== Lokala typer/konstanter – kopierade från App.tsx ===== */
 
 // Item (förenklad: id + övriga fält som any)
 type Item = { id: string } & Record<string, any>;
 
-// Fakturasummering
-type InvoiceSummary = {
-    totalItems: number;
-    reusedCount: number;
-    resoldCount: number;
-    scrappedCount: number;
-};
+
 
 // Rapport-dokument
 type InvoiceReport = {
@@ -32,67 +31,9 @@ type InvoiceReport = {
     summary: InvoiceSummary;      // summering högst upp
 };
 
-// Samma kolumn-typ som i App.tsx
-type BillingSteps = {
-    f3Procedure: number;
-    endpointRemoval: number;
-    osReinstall: number;
-    endpointWipe: number;
-    postWipeBootTest: number;
-    dataErasure: number;
-    refurbish: number;
-};
 
-// Konstanter (samma som i App.tsx)
-const REPORTS_COLLECTION = "reports";
-const INVOICE_SUBCOLLECTION = "fakturor";
 
-// Härledning av 1/0-kolumner (kopierad från App.tsx)
-function computeBillingSteps(opts: { reuse: boolean; resold: boolean; scrap: boolean }): BillingSteps {
-    const { reuse, resold, scrap } = opts;
-    if (reuse) {
-        return {
-            f3Procedure: 1,
-            endpointRemoval: 1,
-            osReinstall: 0,
-            endpointWipe: 1,
-            postWipeBootTest: 1,
-            dataErasure: 1,
-            refurbish: 1,
-        };
-    }
-    if (resold) {
-        return {
-            f3Procedure: 1,
-            endpointRemoval: 1,
-            osReinstall: 1,
-            endpointWipe: 1,
-            postWipeBootTest: 1,
-            dataErasure: 1,
-            refurbish: 1,
-        };
-    }
-    if (scrap) {
-        return {
-            f3Procedure: 0,
-            endpointRemoval: 0,
-            osReinstall: 0,
-            endpointWipe: 0,
-            postWipeBootTest: 0,
-            dataErasure: 1,
-            refurbish: 0,
-        };
-    }
-    return {
-        f3Procedure: 0,
-        endpointRemoval: 0,
-        osReinstall: 0,
-        endpointWipe: 0,
-        postWipeBootTest: 0,
-        dataErasure: 0,
-        refurbish: 0,
-    };
-}
+
 
 /* ===== Små helpers/stilar som används i tabellen (kopierade från App.tsx) ===== */
 const H1: React.CSSProperties = { marginTop: 0 };
@@ -152,7 +93,7 @@ export default function ReportsPage() {
         if (reportDeleteConfirmText !== "DELETE") return;
 
         try {
-            const fn = httpsCallable<any, any>(functions, "deleteInvoiceReport");
+            const fn = httpsCallable<any, any>(functions, FN_DELETE_INVOICE_REPORT);
             await fn({ reportId: pendingReportToDelete.id });
 
             setInvoiceReports(prev => prev.filter(x => x.id !== pendingReportToDelete.id));
@@ -225,8 +166,8 @@ export default function ReportsPage() {
     };
 
     // Summera 1/0-kolumner för en rapports items
-    function calcReportStepTotals(items: Item[]) {
-        const t = {
+    function calcReportStepTotals(items: Item[]): BillingSteps {
+        const t: BillingSteps = {
             f3Procedure: 0,
             endpointRemoval: 0,
             osReinstall: 0,
@@ -277,11 +218,12 @@ export default function ReportsPage() {
                         const isOpen = expandedId === r.id;
 
                         const s: any = (r as any).summary ?? {};
-                        const totalItems = s.totalItems ?? (Array.isArray(r.itemIds) ? r.itemIds.length : 0);
-                        const reused = (s.reused ?? s.reusedCount) ?? 0;
-                        const resold = (s.resold ?? s.resoldCount) ?? 0;
-                        const scrap = (s.scrap ?? s.scrappedCount) ?? 0;
+                        const { totalItems, reusedCount, resoldCount, scrappedCount } = normalizeSummaryCounts(s);
+                        const reused = reusedCount;
+                        const resold = resoldCount;
+                        const scrap = scrappedCount;
                         const totalAmount = (s.totalAmount ?? s.total);
+
                         const fmtSEK = (v: unknown) =>
                             typeof v === "number"
                                 ? new Intl.NumberFormat("sv-SE", { style: "currency", currency: "SEK", maximumFractionDigits: 0 }).format(v)
@@ -428,7 +370,7 @@ export default function ReportsPage() {
                                                     <button
                                                         type="button"
                                                         className="btn btn-danger"
-                                                            onClick={() => openDeleteReportModal(r)}
+                                                        onClick={() => openDeleteReportModal(r)}
                                                         title="Ta bort hela rapporten"
                                                     >
                                                         Ta bort rapport

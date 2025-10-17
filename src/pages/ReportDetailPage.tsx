@@ -2,6 +2,8 @@
 import React, { useEffect, useState } from "react";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
+import { computeBillingSteps } from "../lib/billing";
+import type { BillingSteps } from "../lib/billing";
 
 /* ===== Lokala typer/konstanter (självbärande) ===== */
 type Item = { id: string } & Record<string, any>;
@@ -22,32 +24,10 @@ type InvoiceReport = {
     summary: InvoiceSummary;
 };
 
-type BillingSteps = {
-    f3Procedure: number;
-    endpointRemoval: number;
-    osReinstall: number;
-    endpointWipe: number;
-    postWipeBootTest: number;
-    dataErasure: number;
-    refurbish: number;
-};
 
 const REPORTS_COLLECTION = "reports";
 const INVOICE_SUBCOLLECTION = "fakturor";
 
-function computeBillingSteps(opts: { reuse: boolean; resold: boolean; scrap: boolean }): BillingSteps {
-    const { reuse, resold, scrap } = opts;
-    if (reuse) {
-        return { f3Procedure: 1, endpointRemoval: 1, osReinstall: 0, endpointWipe: 1, postWipeBootTest: 1, dataErasure: 1, refurbish: 1 };
-    }
-    if (resold) {
-        return { f3Procedure: 1, endpointRemoval: 1, osReinstall: 1, endpointWipe: 1, postWipeBootTest: 1, dataErasure: 1, refurbish: 1 };
-    }
-    if (scrap) {
-        return { f3Procedure: 0, endpointRemoval: 0, osReinstall: 0, endpointWipe: 0, postWipeBootTest: 0, dataErasure: 1, refurbish: 0 };
-    }
-    return { f3Procedure: 0, endpointRemoval: 0, osReinstall: 0, endpointWipe: 0, postWipeBootTest: 0, dataErasure: 0, refurbish: 0 };
-}
 
 const H1: React.CSSProperties = { marginTop: 0 };
 const TABLE_COMPACT: React.CSSProperties = {

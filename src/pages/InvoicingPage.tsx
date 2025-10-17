@@ -48,6 +48,8 @@ export type InvoicingPageProps = {
 
     // Rapportgenerering (din existerande CF-wrapper) + refresh
     createInvoiceReportCF: (selectedIds: string[]) => Promise<{ name: string; count: number } & Record<string, any>>;
+    createInvoiceReportLocal?: () => Promise<{ reportId: string; name: string; count: number; customer: string }>;
+
     fetchFirstPage: () => Promise<void>;
 };
 
@@ -78,6 +80,7 @@ export default function InvoicingPage(props: InvoicingPageProps) {
         toEpochMillis,
 
         createInvoiceReportCF,
+        createInvoiceReportLocal,
         fetchFirstPage,
     } = props;
 
@@ -133,9 +136,18 @@ export default function InvoicingPage(props: InvoicingPageProps) {
                                         return;
                                     }
                                     setCreatingReport(true);
-                                    const res = await createInvoiceReportCF(selectedIds);
+
+                                    const useLocal = typeof createInvoiceReportLocal === "function";
+                                    console.log("[InvoicingPage] Using", useLocal ? "LOCAL report creator" : "CLOUD FUNCTION report creator");
+
+                                    const res = useLocal
+                                        ? await createInvoiceReportLocal!()
+                                        : await createInvoiceReportCF(selectedIds);
+
                                     alert(`✅ Fakturarapport skapad: ${res.name} (${res.count} enheter)`);
                                     await fetchFirstPage();
+
+
                                 } catch (e: any) {
                                     console.error("createInvoiceReportCF error:", {
                                         code: e?.code,
