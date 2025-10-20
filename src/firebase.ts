@@ -78,9 +78,12 @@ if (appCheckSiteKey) {
 }
 
 
-// (Ingen App Check init alls i denna fil)
-
+// ---- Init Auth, Firestore och Storage ----
+export const auth = getAuth(app);
 export const db: Firestore = getFirestore(app);
 export const storage: FirebaseStorage = getStorage(app);
-export const auth = getAuth(app);
-if (process.env.NODE_ENV !== "production") (window as any).auth = auth;
+
+// Gör auth tillgänglig i DevTools i dev-läge
+if (process.env.NODE_ENV !== "production") {
+  (window as any).auth = auth;
+}

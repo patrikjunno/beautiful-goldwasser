@@ -1,17 +1,18 @@
 name: Build & Push Docker image
 
 on:
-  push:
-    branches: [ main ]
-    tags: [ 'v*.*.*' ]  # bygger även när du taggar en release, t.ex. v1.2.3
-  workflow_dispatch: {}  
+  workflow_dispatch:
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write   # krävs för att pusha till GitHub Container Registry (GHCR)
+      packages: write
 
     steps:
       - name: Checkout
