@@ -3660,18 +3660,18 @@ export default function App(): JSX.Element {
     })();
   }, [isCustomerPortal, JSON.stringify(customerKeys)]);
 
-  // [NYTT] Tvinga kundkonton till Hem
+  // [UPPDATERAD] Tillåt kundkonton att vara på "home" ELLER "rapporter"
   useEffect(() => {
     if (!isCustomerPortal) return;
 
-    // Om vi råkar stå på Users/Fakturering/Rapporter → hoppa tillbaka till Hem
-    if (activePageRef.current !== "home") {
-      setActivePage("home");
-      void fetchFirstPage();
-      startHomeSentinel?.();
-      activePageRef.current = "home"; // håll ref i synk med state
+    // Om kunden hamnar på någon annan sida än home/rapporter → flytta tillbaka
+    if (activePageRef.current !== "home" && activePageRef.current !== "rapporter") {
+      setActivePage("home");           // ev. byt till "rapporter" om du vill landa där
+      activePageRef.current = "home";
+      // (ingen fetch här – home-effekten ovan sköter refresh när isCustomerPortal/customerKeys ändras)
     }
   }, [isCustomerPortal]);
+
 
 
 
@@ -3924,18 +3924,7 @@ export default function App(): JSX.Element {
     return query(base, where("customerId", "in", top10));
   }
 
-  React.useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const n = await loadProductTypesForImpact();
-        if (active) console.info(`[impact] productTypes loaded: ${n}`);
-      } catch (e) {
-        console.warn("[impact] productTypes load failed; using defaults", e);
-      }
-    })();
-    return () => { active = false; };
-  }, []);
+
 
   // [NYTT – lägg INNE i function App(...)]
   const querySigRef = React.useRef<string>("");
@@ -4143,7 +4132,7 @@ export default function App(): JSX.Element {
   const [creatingReport, setCreatingReport] = useState(false);
 
   useEffect(() => {
-    if (isCustomer(user) && (activePage === "fakturering" || activePage === "rapporter")) {
+    if (isCustomer(user) && activePage === "fakturering") {
       setActivePage("home");
       activePageRef.current = "home";
     }
@@ -6155,7 +6144,7 @@ export default function App(): JSX.Element {
 
   // Prima impact-cachen när vi öppnar Klimatrapporten (en gång)
   useEffect(() => {
-    if (!authReady) return;
+    if (!authReady || !auth.currentUser) return;  // 👈 vänta tills inloggad
     if (rpTypesPrimed) return;
     if (reportsView !== "klimat") return;
 
@@ -6170,7 +6159,7 @@ export default function App(): JSX.Element {
     })();
 
     return () => { cancelled = true; };
-  }, [authReady, reportsView, rpTypesPrimed]);
+  }, [authReady, user?.uid, reportsView, rpTypesPrimed]); // 👈 + user?.uid
 
 
   // SIDE MENU (overlay + panel via portal)
@@ -6232,8 +6221,8 @@ export default function App(): JSX.Element {
               // respektera ev. .visible()
               .filter((m) => (m.visible?.() ?? true))
               .map((m) => {
-                // Dölj fakturering/rapporter helt för kund
-                if (isCustomer(user) && (m.key === "fakturering" || m.key === "rapporter")) return null;
+                // Dölj ENDAST fakturering helt för kund
+                if (isCustomerPortal && m.key === "fakturering") return null;
 
                 // Specialfall: Rapporter → träd med två subval
                 if (m.key === "rapporter") {
@@ -6262,29 +6251,32 @@ export default function App(): JSX.Element {
 
                       {reportsOpen && (
                         <div style={{ marginLeft: 8, display: "grid", gap: 6 }}>
-                          <button
-                            type="button"
-                            className="menu-item"
-                            onClick={() => {
-                              setActivePage("rapporter");
-                              activePageRef.current = "rapporter";
-                              setReportsView("fakturor");
-                              setMenuOpen(false);
-                              stopHomeSentinel?.();
-                            }}
-                            style={{
-                              textAlign: "left",
-                              padding: "8px 10px",
-                              borderRadius: 8,
-                              border: "1px solid transparent",
-                              background:
-                                activePage === "rapporter" && reportsView === "fakturor"
-                                  ? "var(--surface-2)"
-                                  : "transparent",
-                            }}
-                          >
-                            Fakturarapporter
-                          </button>
+                          {/* Dölj Fakturarapporter för kundkonton */}
+                          {!isCustomerPortal && (
+                            <button
+                              type="button"
+                              className="menu-item"
+                              onClick={() => {
+                                setActivePage("rapporter");
+                                activePageRef.current = "rapporter";
+                                setReportsView("fakturor");
+                                setMenuOpen(false);
+                                stopHomeSentinel?.();
+                              }}
+                              style={{
+                                textAlign: "left",
+                                padding: "8px 10px",
+                                borderRadius: 8,
+                                border: "1px solid transparent",
+                                background:
+                                  activePage === "rapporter" && reportsView === "fakturor"
+                                    ? "var(--surface-2)"
+                                    : "transparent",
+                              }}
+                            >
+                              Fakturarapporter
+                            </button>
+                          )}
 
                           <button
                             type="button"
@@ -6358,6 +6350,7 @@ export default function App(): JSX.Element {
               </button>
             </div>
           )}
+
         </aside>
       </>,
       document.body
@@ -6551,26 +6544,30 @@ export default function App(): JSX.Element {
   // === CO₂-rapport: kundlista från Firestore ===
   const [rpCustomerOpts, setRpCustomerOpts] = useState<{ key: string; name: string }[]>([]);
 
+  // === CO₂-rapport: kundlista från Firestore ===
   useEffect(() => {
-    if (!authReady) return; // vänta tills auth initierats
+    if (!authReady || !auth.currentUser) return; // vänta tills inloggad
+
     let cancelled = false;
 
     (async () => {
       try {
         const snap = await getDocs(collection(db, "customers"));
-        const opts = snap.docs
+        let opts = snap.docs
           .map((d) => {
             const data = d.data() as any;
             const name = String(data?.name ?? d.id);
-            // Viktigt: coreport-preview filtrerar mot customerId → key = doc.id
-            return { key: d.id, name };
+            return { key: d.id, name }; // viktigt: key = doc.id (customerId)
           })
           .sort((a, b) => a.name.localeCompare(b.name, "sv"));
 
+        if (isCustomerPortal) {
+          const allowed = new Set((customerKeys ?? []).map(String));
+          opts = opts.filter((o) => allowed.has(o.key));
+        }
+
         if (!cancelled) {
           setRpCustomerOpts(opts);
-
-          // Förvälj alla kunder första gången, så knappen kan köras direkt
           if (rpSelectedCustomers.length === 0 && opts.length > 0) {
             setRpSelectedCustomers(opts.map((o) => o.key));
           }
@@ -6582,12 +6579,14 @@ export default function App(): JSX.Element {
     })();
 
     return () => { cancelled = true; };
-  }, [authReady]); // kör när auth är redo
+  }, [authReady, user?.uid, isCustomerPortal, JSON.stringify(customerKeys)]);
+
+
 
 
   // === CO₂-rapport: produkttyper från DB (productTypes) — live ===
   useEffect(() => {
-    if (!authReady) return; // vänta tills auth initierats
+    if (!authReady || !auth.currentUser) return;   // 👈 vänta tills inloggad
     let unsub: undefined | (() => void);
 
     try {
@@ -6624,7 +6623,7 @@ export default function App(): JSX.Element {
 
 
     return () => { if (unsub) unsub(); };
-  }, [authReady, db]);
+  }, [authReady, user?.uid, db]);    // 👈 + user?.uid
 
 
   // Förvälj alla första gången
@@ -6711,53 +6710,63 @@ export default function App(): JSX.Element {
                       prev.includes(id) ? prev.filter((t: string) => t !== id) : [...prev, id]
                     )
                   }
-                  onRun={async () => {
-                    setReportLoading(true);
-                    setReportError(null);
-                    try {
-                      // 👇 Säkerställ att productTypes-cachen är primad innan vi bygger preview
-                      if (!rpTypesPrimed) {
-                        try {
-                          await loadProductTypesForImpact();
-                          setRpTypesPrimed(true);
-                        } catch (e) {
-                          console.warn("Fallback-prime misslyckades:", e);
+                    onRun={async () => {
+                      setReportLoading(true);
+                      setReportError(null);
+                      try {
+                        // 👇 Säkerställ att productTypes-cachen är primad innan vi bygger preview
+                        if (!rpTypesPrimed) {
+                          try {
+                            await loadProductTypesForImpact();
+                            setRpTypesPrimed(true);
+                          } catch (e) {
+                            console.warn("Fallback-prime misslyckades:", e);
+                          }
                         }
+
+                        // 🔒 Lås kundurvalet till det som faktiskt finns i UI-listan
+                        const allowedIds = new Set(rpCustomerOpts.map(o => o.key));
+                        let customerIds = (
+                          rpSelectedCustomers.length > 0
+                            ? rpSelectedCustomers
+                            : rpCustomerOpts.map(o => o.key)
+                        ).filter(id => allowedIds.has(id));
+
+                        // Kundläge: blockera körning om inget tillåtet val finns kvar
+                        if (isCustomerPortal && customerIds.length === 0) {
+                          setReportError("Inga behöriga kunder valda.");
+                          setReportLoading(false);
+                          return;
+                        }
+
+                        const productTypes: ProductType[] | undefined =
+                          rpSelectedTypes.length > 0
+                            ? (rpSelectedTypes as unknown as ProductType[])
+                            : undefined;
+
+                        const toYMD = (d: Date) => d.toISOString().slice(0, 10);
+                        const toDateExclusive =
+                          rpTo && rpTo.trim()
+                            ? toYMD(new Date(new Date(rpTo).getTime() + 24 * 60 * 60 * 1000))
+                            : undefined;
+
+                        const filters: ReportFilters = {
+                          fromDate: rpFrom,
+                          toDate: toDateExclusive ?? rpTo,
+                          basis: "completedAt",
+                          customerIds,
+                          productTypes,
+                        };
+
+                        const { preview } = await getImpactPreviewForFilters(filters);
+                        setReportPreview(preview);
+                      } catch (e: any) {
+                        setReportError(e?.message || "Fel vid rapportförhandsvisning");
+                      } finally {
+                        setReportLoading(false);
                       }
+                    }}
 
-                      const customerIds =
-                        rpSelectedCustomers.length > 0
-                          ? rpSelectedCustomers
-                          : rpCustomerOpts.map((o) => o.key);
-
-                      const productTypes: ProductType[] | undefined =
-                        rpSelectedTypes.length > 0
-                          ? (rpSelectedTypes as unknown as ProductType[])
-                          : undefined;
-
-                      const toYMD = (d: Date) => d.toISOString().slice(0, 10);
-                      const toDateExclusive =
-                        rpTo && rpTo.trim()
-                          ? toYMD(new Date(new Date(rpTo).getTime() + 24 * 60 * 60 * 1000))
-                          : undefined;
-
-                      const filters: ReportFilters = {
-                        fromDate: rpFrom,               // oförändrat
-                        toDate: toDateExclusive ?? rpTo, // inklusivt (rpTo + 1 dag) om rpTo fanns
-                        basis: "completedAt",
-                        customerIds,
-                        productTypes,
-                      };
-
-
-                      const { preview } = await getImpactPreviewForFilters(filters);
-                      setReportPreview(preview);
-                    } catch (e: any) {
-                      setReportError(e?.message || "Fel vid rapportförhandsvisning");
-                    } finally {
-                      setReportLoading(false);
-                    }
-                  }}
 
                   loading={reportLoading}
                   error={reportError || (rpTypeOpts.length === 0 ? "Inga produkttyper hittades i DB. Lägg till i 'productTypes' eller kontrollera åtkomst." : null)}

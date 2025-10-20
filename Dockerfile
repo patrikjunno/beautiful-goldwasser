@@ -31,8 +31,5 @@ RUN chmod +x /entrypoint.sh
 EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=3s CMD wget -qO- http://localhost/ || exit 1
 
-# Kör som icke-root
-USER 101:101
-
-# Starta via entrypoint
+# Starta via entrypoint (behåll default-användare i nginx:alpine)
 ENTRYPOINT ["/entrypoint.sh"]

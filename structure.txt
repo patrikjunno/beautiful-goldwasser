@@ -1,0 +1,75 @@
+.
+├── Dockerfile
+├── LICENSE
+├── _baselines
+│   └── App.20250904-155129.tsx
+├── deploy
+│   ├── config.template.js
+│   ├── entrypoint.sh
+│   └── nginx.conf
+├── firebase.json
+├── firestore-debug.log
+├── firestore.rules
+├── functions
+│   ├── lib
+│   │   ├── index.js
+│   │   ├── reports
+│   │   └── saveReportManifest.js
+│   ├── package-lock.json
+│   ├── package.json
+│   ├── src
+│   │   ├── index.ts
+│   │   └── reports
+│   ├── tsconfig.dev.json
+│   └── tsconfig.json
+├── functions-reports
+│   ├── lib
+│   │   ├── index.js
+│   │   └── saveReportManifest.js
+│   ├── package-lock.json
+│   ├── package.json
+│   ├── src
+│   │   ├── index.ts
+│   │   └── saveReportManifest.ts
+│   └── tsconfig.json
+├── package-lock.json
+├── package.json
+├── project
+│   └── home
+│       └── project
+├── public
+│   ├── branding
+│   │   └── logo.png
+│   ├── config.js
+│   └── index.html
+├── rules-test.js
+├── src
+│   ├── App.tsx
+│   ├── ThemeToggle.tsx
+│   ├── components
+│   │   └── ClearableInput.tsx
+│   ├── firebase.ts
+│   ├── index.tsx
+│   ├── lib
+│   │   ├── billing.ts
+│   │   ├── impact.ts
+│   │   ├── reports.ts
+│   │   └── schema.ts
+│   ├── pages
+│   │   ├── InvoicingPage.tsx
+│   │   ├── ProductTypesAdmin.tsx
+│   │   ├── ReportDetailPage.tsx
+│   │   ├── ReportsPage.tsx
+│   │   ├── UserAdmin.tsx
+│   │   └── coreport.tsx
+│   ├── services
+│   │   ├── inventory.ts
+│   │   ├── productTypes.ts
+│   │   ├── reports.ts
+│   │   └── serialIndex.ts
+│   └── styles.css
+├── structure.txt
+├── tsconfig.clearable.json
+└── tsconfig.json
+
+21 directories, 52 files

@@ -11,3 +11,8 @@ build
 firebase-debug.log
 firestore-debug.log
 functions/.cache
+.env
+.env.*
+!.env.production
+functions
+functions-reports

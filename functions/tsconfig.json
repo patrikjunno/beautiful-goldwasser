@@ -8,6 +8,7 @@
     "outDir": "lib",
 
     "strict": true,
+    "noImplicitAny": false,   // ⬅️ lägg till denna rad
     "esModuleInterop": true,
     "skipLibCheck": true,
 

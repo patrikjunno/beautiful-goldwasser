@@ -1,6 +1,7 @@
 // functions/src/reports/buildCO2Preview.ts
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
+import type { Query } from "firebase-admin/firestore";
 
 if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
@@ -190,7 +191,7 @@ export async function buildCO2PreviewHandler(req: any, res: any): Promise<void> 
 
         for (const group of chunk(customerIds, 10)) {
             // OBS: ENDAST ETT "in" → på customerId. Typ filtreras i minnet.
-            let q: FirebaseFirestore.Query = db
+            let q: Query = db
                 .collection("itInventory")
                 .where("completed", "==", true)
                 .where("completedAt", ">=", from)

@@ -1,13 +1,16 @@
-// src/pages/coreport.tsx
+// === Mikrosteg 8: ersätt importblocket i src/pages/coreport.tsx med detta ===
 import React, { useState } from "react";
 import type { PreparedImpactDisplay } from "../lib/impact";
+
+// Behåll Firestore-läs-importer om de används i denna fil (listningar/preview mm)
 import { getFirestore, collection, onSnapshot, orderBy, query } from "firebase/firestore";
-import { storage } from "../firebase";
-import { ref as storageRef, uploadString } from "firebase/storage";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../firebase";
-import { PDFDocument, rgb, StandardFonts, } from "pdf-lib";
+
+import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import type { PDFPage } from "pdf-lib";
+
+// Lägg till Functions-anropet (server-skrivning av manifest)
+import { getFunctions, httpsCallable } from "firebase/functions";
+
 
 
 
@@ -456,6 +459,8 @@ export default function COReport(props: COReportProps) {
 
     return out;
   }
+
+  const [exporting, setExporting] = React.useState(false);
 
 
   function buildExportPayload() {
@@ -1327,10 +1332,10 @@ export default function COReport(props: COReportProps) {
 
 
   async function handleExportClick() {
-    if (!canExport) return;
+    if (exporting || !canExport) return;
+    setExporting(true);
+
     const payload = buildExportPayload();
-
-
 
     // små hjälpare
     const asMsg = (err: unknown) =>
@@ -1339,17 +1344,15 @@ export default function COReport(props: COReportProps) {
     try {
       console.debug("[EXPORT] start");
 
-      // Org-id enligt din befintliga logik
+      // Org-id enligt din befintliga logik (används i PDF/manifestvisning – inte för ID-beräkning längre)
       const orgId =
         (window as any)?.ORG_ID ||
         (window as any)?.goldwasserOrgId ||
         "org";
 
       // Behåll tidigare urvalshash (från preview-snapshoten)
-      const selectionHash = payload.manifestPreview?.selection?.hash ?? (snapshotMeta?.selectionHash ?? "");
-      const basis = `${orgId}|${payload.policy}|${selectionHash}`;
-      const manifestId = await sha256Hex(basis);
-      console.debug("[EXPORT] manifestId", manifestId);
+      const selectionHash =
+        payload.manifestPreview?.selection?.hash ?? (snapshotMeta?.selectionHash ?? "");
 
       // ===== 1) Hämta server-side preview (per kund) =====
       const PREVIEW_URL = BUILD_CO2_PREVIEW_URL;
@@ -1373,7 +1376,6 @@ export default function COReport(props: COReportProps) {
         (payload.manifestPreview as any)?.filtersUsed?.types ||
         (payload.manifestPreview as any)?.filters?.productTypeIds || undefined;
 
-      // Kalla funktionen
       const serverPayload = {
         fromDate,
         toDate,
@@ -1417,7 +1419,7 @@ export default function COReport(props: COReportProps) {
         selection: { itemIds: string[] };
       };
 
-      // ===== 2) Bygg rader (flatten per kund × typ) i samma stil som din PDF förväntar sig =====
+      // ===== 2) Bygg rader (flatten per kund × typ) =====
       const builtRows = serverPreview.perCustomer.flatMap((bucket) =>
         bucket.rows.map((r) => ({
           customerId: bucket.customerId,
@@ -1432,9 +1434,9 @@ export default function COReport(props: COReportProps) {
         }))
       );
 
-      // ===== 3) Manifest till PDF (behåller din metadata + ersätter data med serverns) =====
+      // ===== 3) Manifest till PDF (behåll metadata + ersätt data med serverns) =====
       const manifestJson = {
-        ...payload.manifestPreview, // reportFormatVersion, calculationSchemaVersion, appBuild, createdAt, etc.
+        ...payload.manifestPreview,
         orgId,
         factorPolicy: payload.policy,
         ui: {
@@ -1442,35 +1444,31 @@ export default function COReport(props: COReportProps) {
           description: payload.description,
           logoUrl: payload.logoUrl,
         },
-
-        // Filters i den form din PDF-fot läser (filtersUsed.from/to)
         filtersUsed: {
           from: serverPreview.filters.fromDate,
           to: serverPreview.filters.toDate,
           customers: [...customerIds],
           types: productTypeIds ? [...productTypeIds] : [],
         },
-
-        // Frysta faktorer + totals
         factorsUsed: serverPreview.factorsUsed,
         totals: serverPreview.grandTotals,
-
-        // Rader per kund × typ (som PDF-lagret kan iterera)
         rows: builtRows,
-
-        // Urval
         selection: {
           ids: serverPreview.selection.itemIds,
           count: Number(serverPreview.grandTotals?.total ?? serverPreview.selection.itemIds.length),
-          hash: selectionHash, // behåll samma hash (låst i preview-snapshot)
+          hash: selectionHash,
         },
       };
 
-      // ===== 4) Generera PDF lokalt =====
+      // ===== 4) Generera PDF lokalt (trigga nedladdning, släpp UI snabbt) =====
       console.debug("[EXPORT] generating PDF locally…");
       try {
-        await generateReportPdf(manifestJson);
-        console.debug("[EXPORT] PDF generated ok");
+        await Promise.race([
+          (async () => { await generateReportPdf(manifestJson); })(),
+          // om generateReportPdf inte resolve:ar (a.click()), släpp UI efter kort delay
+          new Promise<void>((resolve) => setTimeout(resolve, 400)),
+        ]);
+        console.debug("[EXPORT] PDF download triggered");
       } catch (e) {
         const msg = e instanceof Error ? (e.stack || e.message) : typeof e === "string" ? e : JSON.stringify(e);
         console.error("[EXPORT] PDF generation failed:", e);
@@ -1478,43 +1476,42 @@ export default function COReport(props: COReportProps) {
         return;
       }
 
-      // ===== 5) Ladda upp manifestet till Storage =====
-      try {
-        console.debug("[EXPORT] uploading manifest to Storage…");
-        const storagePath = `orgs/${orgId}/reports/${manifestId}.json`;
-        const fileRef = storageRef(storage, storagePath);
-        await uploadString(fileRef, JSON.stringify(manifestJson), "raw", {
-          contentType: "application/json; charset=utf-8",
-        });
-        console.debug("[EXPORT] Storage upload ok →", storagePath);
+      // 🔓 Släpp knappen direkt – manifest-sparandet körs i bakgrunden via Cloud Function
+      setExporting(false);
 
-        // ===== 6) Skriv referens i Firestore =====
-        console.debug("[EXPORT] writing Firestore manifest doc…");
-        const manifestRef = doc(db, "reports_manifests", manifestId);
-        await setDoc(manifestRef, {
-          orgId,
-          customerKeys: snapshotMeta?.filters.customers ?? [],
-          createdAt: serverTimestamp(),
-          selectionHash,
-          selectionCount: Number(manifestJson?.selection?.count ?? manifestJson?.totals?.total ?? 0),
-          factorPolicy: payload.policy,
-          storagePath,
-          reportFormatVersion: payload.manifestPreview?.reportFormatVersion ?? "1.0.0",
-        }, { merge: true });
+      // ===== 5) Spara manifest i bakgrunden via Cloud Function =====
+      void (async () => {
+        try {
+          console.debug("[EXPORT/bg] calling saveReportManifest (CF) …");
+          const functions = getFunctions(undefined, "europe-west1");
+          const fn = httpsCallable(functions, "saveReportManifest");
+          const result = await fn({
+            policy: payload.policy,
+            selectionHash,
+            selection: payload.manifestPreview?.selection ?? null,
+            manifest: manifestJson, // skicka det vi just ritade PDF från
+          });
+          console.debug("[EXPORT/bg] manifest saved", (result as any)?.data ?? result);
+        } catch (e) {
+          const msg = e instanceof Error ? (e.stack || e.message) : typeof e === "string" ? e : JSON.stringify(e);
+          console.error("[EXPORT/bg] manifest save failed (CF):", e);
+          alert("Kunde inte spara manifestet i bakgrunden (server):\n\n" + msg);
+        }
+      })();
 
-        console.debug("[EXPORT] Firestore manifest doc ok");
-      } catch (e) {
-        console.error("[EXPORT] upload/write failed", e);
-        alert("Uppladdning av manifest misslyckades:\n\n" + asMsg(e));
-        return;
-      }
-
-      console.debug("[EXPORT] done");
+      console.debug("[EXPORT] done (background CF save running)");
     } catch (err) {
       console.error("[EXPORT] error", err);
       alert("Exporten misslyckades:\n\n" + asMsg(err));
+    } finally {
+      // om något ovan return:ade innan "släpp UI" – säkerställ att vi inte fastnar
+      setExporting(false);
     }
   }
+
+
+
+
 
 
 
@@ -1851,18 +1848,32 @@ export default function COReport(props: COReportProps) {
             <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
               <button
                 className="btn btn-primary"
-                onClick={handleExportClick}
-                disabled={!canExport}
+                onClick={async () => {
+                  if (exporting) return;
+                  setExporting(true);
+                  try {
+                    await handleExportClick();
+                  } finally {
+                    setExporting(false);
+                  }
+                }}
+                disabled={!canExport || exporting}
+                aria-busy={exporting ? "true" : "false"}
                 title={
-                  !snapshotMeta
-                    ? "Ladda förhandsvisning först"
-                    : isStale
-                      ? "Filter ändrade – ladda förhandsvisning igen"
-                      : "Exportera PDF"
+                  exporting
+                    ? "Exporterar…"
+                    : !snapshotMeta
+                      ? "Ladda förhandsvisning först"
+                      : isStale
+                        ? "Filter ändrade – ladda förhandsvisning igen"
+                        : "Exportera PDF"
                 }
+                style={{ minWidth: 140 }}
               >
-                Exportera PDF
+                {exporting ? "Exporterar…" : "Exportera PDF"}
               </button>
+
+
               <button className="btn" onClick={() => setShowInfo(true)}>Om rapporten</button>
             </div>
           </div>

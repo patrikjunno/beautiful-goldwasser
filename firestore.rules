@@ -156,33 +156,33 @@ service cloud.firestore {
 
     // ===== Övriga samlingar =====
 
-// Unikhetsindex för serienummer (skyddad)
-match /serialIndex/{serialKey} {
-  // Läs: inloggade
-  allow read: if isSignedIn();
+    // Unikhetsindex för serienummer (skyddad)
+    match /serialIndex/{serialKey} {
+      // Läs: inloggade
+      allow read: if isSignedIn();
 
-  // Skriv: inloggade + fältwhitelist + invariants
-  allow create, update: if isSignedIn()
-                        && _serialIndexFieldsOk()
-                        && _serialIndexInvariantOk();
+      // Skriv: inloggade + fältwhitelist + invariants
+      allow create, update: if isSignedIn()
+                            && _serialIndexFieldsOk()
+                            && _serialIndexInvariantOk();
 
-  // Radera index endast för admin (t.ex. dev/wipe)
-  allow delete: if isAdmin();
+      // Radera index endast för admin (t.ex. dev/wipe)
+      allow delete: if isAdmin();
 
-  // --- Lokala helpers för detta match-block ---
-  function _serialIndexFieldsOk() {
-    // Tillåt ENBART dessa fält och rätt typer
-    return request.resource.data.keys().hasOnly(['lastVisit','visits','active','lastSeen','lastItemId'])
-           && (request.resource.data.lastVisit is int    && request.resource.data.lastVisit >= 0)
-           && (request.resource.data.visits    is int    && request.resource.data.visits    >= 0)
-           && (request.resource.data.active    is int    && request.resource.data.active    >= 0)
-           && (request.resource.data.lastItemId is string
-               || !request.resource.data.keys().hasAny(['lastItemId']))
-           && (request.resource.data.lastSeen is timestamp
-               || !request.resource.data.keys().hasAny(['lastSeen']));
+      // --- Lokala helpers för detta match-block ---
+      function _serialIndexFieldsOk() {
+        // Tillåt ENBART dessa fält och rätt typer
+        return request.resource.data.keys().hasOnly(['lastVisit','visits','active','lastSeen','lastItemId'])
+               && (request.resource.data.lastVisit is int    && request.resource.data.lastVisit >= 0)
+               && (request.resource.data.visits    is int    && request.resource.data.visits    >= 0)
+               && (request.resource.data.active    is int    && request.resource.data.active    >= 0)
+               && (request.resource.data.lastItemId is string
+                   || !request.resource.data.keys().hasAny(['lastItemId']))
+               && (request.resource.data.lastSeen is timestamp
+                   || !request.resource.data.keys().hasAny(['lastSeen']));
       }
 
-       function _serialIndexInvariantOk() {
+      function _serialIndexInvariantOk() {
         let vNew  = request.resource.data.visits;
         let lvNew = request.resource.data.lastVisit;
         let aNew  = request.resource.data.active;
@@ -202,7 +202,6 @@ match /serialIndex/{serialKey} {
         );
       }
     }
-
 
     // Serial claims (under serialIndex)
     match /serialIndex/{serialKey}/claims/{visit} {
@@ -225,17 +224,28 @@ match /serialIndex/{serialKey} {
       allow create, update, delete: if isAdmin();
     }
 
-    // ===== Rapporter: manifests (skrivs vid export) =====
-    match /reports_manifests/{manifestId} {
-      // Endast admin får skapa/läsa/uppdatera manifest
-      allow read: if isAdmin();
-      allow create: if isAdmin();
-      allow update: if isAdmin();
+    // ===== Rapporter: manifests (NY server-skriven struktur) =====
+    match /orgs/{orgId}/report_manifests/{manifestId} {
+      // Läsning: admin ELLER inloggad användare vars orgId-claim matchar doc:ets org
+      allow read: if request.auth != null
+                   && (
+                        request.auth.token.role == 'admin'
+                        || request.auth.token.admin == true
+                        || (request.auth.token.roles != null && request.auth.token.roles.admin == true)
+                        || request.auth.token.orgId == orgId
+                      );
 
-      // Ingen hard delete från klienten (behåll spårbarhet)
-      allow delete: if false;
+      // Skrivning: endast via server (Admin SDK) → neka klient
+      allow create, update, delete: if false;
     }
 
+    // ===== Rapporter: manifests (LEGACY root) =====
+    match /reports_manifests/{manifestId} {
+      // Endast admin får läsa gamla manifest
+      allow read: if isAdmin();
+      // Klient får inte skapa/uppdatera/radera längre
+      allow create, update, delete: if false;
+    }
 
     // Stödsamlingar
     match /manufacturers/{id} {
