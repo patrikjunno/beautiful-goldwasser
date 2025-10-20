@@ -83,3 +83,4 @@ if (appCheckSiteKey) {
 export const db: Firestore = getFirestore(app);
 export const storage: FirebaseStorage = getStorage(app);
 export const auth = getAuth(app);
+if (process.env.NODE_ENV !== "production") (window as any).auth = auth;
