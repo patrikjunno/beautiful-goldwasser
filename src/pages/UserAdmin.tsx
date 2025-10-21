@@ -69,10 +69,8 @@ export default function UsersAdmin() {
             const opts: { key: string; name: string }[] = snap.docs
                 .map((d) => {
                     const data = d.data() as any;
-                    const name = (data?.name || d.id) as string;
-                    // VIKTIGT: använd "name" som key eftersom itInventory.customer verkar vara sparad som namn
-                    const keyForItems = name;
-                    return { key: keyForItems, name };
+                    const name = String(data?.name ?? d.id);
+                    return { key: d.id, name };   // ✅ använd doc.id som key (stabil ID)
                 })
                 .sort((a, b) => a.name.localeCompare(b.name, "sv"));
             setCustomers(opts);
@@ -80,6 +78,7 @@ export default function UsersAdmin() {
             console.warn("Kunde inte ladda customers:", e);
         }
     }
+
 
     // Alias så att din befintliga kod som refererar till customerListOpts fungerar rakt av.
     const customerListOpts = customers;

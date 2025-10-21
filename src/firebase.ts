@@ -52,22 +52,14 @@ const firebaseConfig = { ...envCfg, ...runtimeCfg };
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 
 // ---- App Check (reCAPTCHA v3) ----
-// Site key tas från .env.production (CRA) eller ev. runtime-config om det finns
 const appCheckSiteKey =
   process.env.REACT_APP_RECAPTCHA_SITE_KEY ||
-  (typeof window !== "undefined" &&
-    (window as any).__GOLDWASSER_CONFIG__?.appCheck?.siteKey) ||
+  (typeof window !== "undefined" && (window as any).__GOLDWASSER_CONFIG__?.appCheck?.siteKey) ||
   "";
 
-if (appCheckSiteKey) {
+// ✅ Initiera bara i production (undvik X-Firebase-AppCheck i dev)
+if (process.env.NODE_ENV === "production" && appCheckSiteKey) {
   try {
-    // Valfritt: lokal debug (sätt window.__APPCHECK_DEBUG_TOKEN__ i dev-konsolen)
-    // @ts-ignore
-    if (process.env.NODE_ENV !== "production" && (window as any).__APPCHECK_DEBUG_TOKEN__) {
-      // @ts-ignore
-      self.FIREBASE_APPCHECK_DEBUG_TOKEN = (window as any).__APPCHECK_DEBUG_TOKEN__;
-    }
-
     initializeAppCheck(app, {
       provider: new ReCaptchaV3Provider(appCheckSiteKey),
       isTokenAutoRefreshEnabled: true,
@@ -76,6 +68,32 @@ if (appCheckSiteKey) {
     console.warn("[AppCheck] init failed:", err);
   }
 }
+
+/*
+// 🔕 DEV: inaktiverad för att undvika CORS/preflight i utveckling
+try {
+  const hasDebugToken =
+    process.env.NODE_ENV !== "production" &&
+    typeof window !== "undefined" &&
+    (window as any).__APPCHECK_DEBUG_TOKEN__;
+
+  if (hasDebugToken) {
+    // @ts-ignore
+    self.FIREBASE_APPCHECK_DEBUG_TOKEN = (window as any).__APPCHECK_DEBUG_TOKEN__;
+  }
+
+  if (appCheckSiteKey || hasDebugToken) {
+    initializeAppCheck(app, {
+      provider: new ReCaptchaV3Provider(appCheckSiteKey || "debug"),
+      isTokenAutoRefreshEnabled: true,
+    });
+  }
+} catch (err) {
+  console.warn("[AppCheck] init failed:", err);
+}
+*/
+
+
 
 
 // ---- Init Auth, Firestore och Storage ----

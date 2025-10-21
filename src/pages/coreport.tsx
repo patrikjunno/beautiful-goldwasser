@@ -115,6 +115,45 @@ async function fetchServerPreview(params: {
   return res.json();
 }
 
+// --- NYTT: lokal state för server-preview ---
+const [serverPreview, setServerPreview] = useState<ServerPreview | null>(null);
+
+// --- NYTT: översätt serverns svar till samma "platta" rader som tabellen förväntar sig ---
+function flattenRowsFromServer(sp: ServerPreview) {
+  // summera per produkttyp över alla valda kunder
+  const byType = new Map<string, {
+    productTypeId: string;
+    productType: string;
+    A: number; B: number; C: number; D: number; E: number;
+    total: number; eWasteKg: number; recycledKg: number; co2Kg: number;
+  }>();
+
+  for (const bucket of sp.perCustomer) {
+    for (const r of bucket.rows) {
+      const key = r.productTypeId || r.productType;
+      if (!byType.has(key)) {
+        byType.set(key, {
+          productTypeId: r.productTypeId,
+          productType: r.productType,
+          A: 0, B: 0, C: 0, D: 0, E: 0,
+          total: 0, eWasteKg: 0, recycledKg: 0, co2Kg: 0,
+        });
+      }
+      const acc = byType.get(key)!;
+      acc.A += r.A; acc.B += r.B; acc.C += r.C; acc.D += r.D; acc.E += r.E;
+      acc.total += r.total;
+      acc.eWasteKg += r.eWasteKg;
+      acc.recycledKg += r.recycledKg;
+      acc.co2Kg += r.co2Kg;
+    }
+  }
+
+  // returnera i en stabil ordning på etikett
+  return Array.from(byType.values()).sort((a, b) =>
+    a.productType.localeCompare(b.productType, "sv"));
+}
+
+
 
 
 
@@ -178,7 +217,21 @@ export default function COReport(props: COReportProps) {
 
   const customerOpts = props.customerOpts ?? [];
   const typeOpts = props.typeOpts ?? [];
-  const preview = props.preview ?? null;
+  // Om vi har ett server-svar: platta ut raderna därifrån och använd dem i render
+  const previewFromServer = serverPreview
+    ? {
+      // minimalt “preview-objekt” för tabellen nedan:
+      rows: flattenRowsFromServer(serverPreview),
+      totals: serverPreview.grandTotals,
+      processed: Number(serverPreview.grandTotals?.total ?? 0),
+      skipped: 0,
+      schemaVersion: 1,
+    }
+    : null;
+
+  // Fallback till props.preview (gamla klient-beräkningen) om vi inte har server-svar
+  const preview = previewFromServer ?? (props.preview ?? null);
+
 
   /* -------- Handlers (delegation till props, annars lokalt) -------- */
   const setFrom = (v: string) => (props.onChangeFrom ? props.onChangeFrom(v) : setLocalFrom(v));
@@ -200,6 +253,8 @@ export default function COReport(props: COReportProps) {
     if (props.onToggleType) return props.onToggleType(id);
     setLocalSelTypes((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]));
   };
+
+  
 
   // Begränsa valen till de ids som faktiskt finns i typeOpts
   const availableTypeIds = React.useMemo(
@@ -1788,7 +1843,37 @@ export default function COReport(props: COReportProps) {
             <button
               type="button"
               className="btn btn-primary"
-              onClick={() => props.onRun?.()}
+              onClick={async () => {
+                try {
+                  const payload = {
+                    fromDate: vFrom,
+                    toDate: vTo,
+                    customerIds: vCustomers,                // exakt de valda kunderna
+                    productTypeIds: vTypes.length ? vTypes : undefined,
+                    basis: "completedAt" as const,
+                    factorPolicy: "latest" as const,
+                  };
+
+                  const res = await fetch(BUILD_CO2_PREVIEW_URL, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                    credentials: "omit",
+                    mode: "cors",
+                  });
+
+                  if (!res.ok) {
+                    const txt = await res.text().catch(() => "");
+                    throw new Error(`buildCO2Preview failed: ${res.status} ${res.statusText} ${txt}`);
+                  }
+
+                  const sp: ServerPreview = await res.json();
+                  setServerPreview(sp);                     // <- NYCKELN: lagra svaret
+                } catch (e) {
+                  console.error(e);
+                  alert(e instanceof Error ? e.message : String(e));
+                }
+              }}
               disabled={
                 loading ||
                 safeSelectedCustomers.length === 0 ||

@@ -1,4 +1,7 @@
 "use strict";
+// functions-reports/src/saveReportManifest.ts
+// Server-sida: spara rapport-manifest till GCS + metadata i Firestore.
+// Anpassad till vår nya struktur: lazy admin-init via ./_admin, CommonJS-aggregator i index.ts.
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -15,31 +18,19 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.saveReportManifest = void 0;
-// functions/src/saveReportManifest.ts
 const https_1 = require("firebase-functions/v2/https");
-const admin = __importStar(require("firebase-admin"));
+const _admin_1 = require("./_admin");
+const firestore_1 = require("firebase-admin/firestore");
 const crypto = __importStar(require("crypto"));
-if (!admin.apps.length)
-    admin.initializeApp();
 // --- Hjälpare: stabil serverside-hash av urvalet (sortera ALLT) ---
 function canonicalSelectionKey(input) {
     const sort = (arr) => [...(arr ?? [])].map(String).sort();
@@ -59,16 +50,17 @@ function sha256Hex(s) {
     return crypto.createHash("sha256").update(s, "utf8").digest("hex");
 }
 exports.saveReportManifest = (0, https_1.onCall)({
-    region: "europe-west1",
+    region: _admin_1.REGION,
     cors: true,
-    enforceAppCheck: false, // prod: på. Dev: använd debug token.
+    enforceAppCheck: false, // prod: true. Dev: false/debug token.
     timeoutSeconds: 20,
     memory: "256MiB",
 }, async (req) => {
-    // === 1) Auth krävs ===
-    const uid = req.auth?.uid;
-    if (!uid)
+    // === 1) Auth krävs + (implicit) admin-guard i klientflödet ===
+    if (!req.auth?.uid)
         throw new https_1.HttpsError("unauthenticated", "Login required");
+    // Vill du hårdspärra till admin här också? Av/på genom nästa rad:
+    // assertAdmin(req);
     // === 2) Läs & validera input ===
     const data = req.data;
     if (!data || typeof data !== "object") {
@@ -107,10 +99,10 @@ exports.saveReportManifest = (0, https_1.onCall)({
         calculationSchemaVersion,
     });
     const selectionHash = sha256Hex(selectionKey);
-    // === 6) Manifest-ID (behåll samma formel men använd serverside-hash) ===
+    // === 6) Manifest-ID (deterministiskt) ===
     const basis = `${orgId}|${policy}|${selectionHash}`;
     const manifestId = sha256Hex(basis);
-    // === 7) Förbered paths: skriv både "versions" (append) och "latest" (overwrite) ===
+    // === 7) Paths för GCS: skriv både "versions" (append) och "latest" (overwrite) ===
     const now = new Date();
     const pad = (n) => String(n).padStart(2, "0");
     const yyyy = now.getFullYear();
@@ -124,17 +116,15 @@ exports.saveReportManifest = (0, https_1.onCall)({
     const base = `orgs/${orgId}/reports/${selectionHash}`;
     const latestPath = `${base}/latest.json`;
     const versionPath = `${base}/versions/${yyyy}/${mm}/${dd}/${stamp}.json`;
-    // === 8) Skriv till Cloud Storage (Admin SDK) ===
-    //  - Innehåll: samma manifest som input, men med serverside-hash injicerad
+    // === 8) Skriv till Cloud Storage (via lazy-admin getAdminApp) ===
     const body = JSON.stringify({
         ...m,
         selection: {
             ...(m?.selection ?? {}),
-            hash: selectionHash, // <-- serverns hash (stabil)
+            hash: selectionHash, // serverns hash (stabil)
         },
-        // Lämna övrig struktur orörd
     }, null, 2);
-    const bucket = admin.storage().bucket(); // default bucket
+    const bucket = (0, _admin_1.getAdminApp)().storage().bucket(); // default bucket
     const commonOpts = {
         contentType: "application/json; charset=utf-8",
         resumable: false,
@@ -143,19 +133,18 @@ exports.saveReportManifest = (0, https_1.onCall)({
                 orgId,
                 policy,
                 selectionHash, // serverside hash
-                selectionHashClient: String(clientSelectionHash || ""), // för felsökning
-                createdBy: uid,
+                selectionHashClient: String(clientSelectionHash || ""), // felsökning
+                createdBy: req.auth.uid,
             },
             cacheControl: "no-store",
         },
     };
-    // 8a) Skriv versionsfil (append)
+    // 8a) Append-version
     await bucket.file(versionPath).save(body, commonOpts);
-    // 8b) Skriv latest (overwrite/idempotent)
+    // 8b) Senaste/idempotent
     await bucket.file(latestPath).save(body, commonOpts);
-    // === 9) Skriv metadata till Firestore (behåll collection/format; uppdatera path) ===
-    const db = admin.firestore();
-    const nowTs = admin.firestore.FieldValue.serverTimestamp();
+    // === 9) Metadata i Firestore (lazy via getDb) ===
+    const db = (0, _admin_1.getDb)();
     await db
         .collection("orgs")
         .doc(orgId)
@@ -167,13 +156,12 @@ exports.saveReportManifest = (0, https_1.onCall)({
         policy,
         selectionHash, // serverside
         selectionHashClient: String(clientSelectionHash || null),
-        storagePath: latestPath, // behåll legacy-fältet: peka på latest
-        storageVersionPath: versionPath, // ny pekare till versionen
-        createdAt: nowTs,
-        createdBy: uid,
+        storagePath: latestPath, // legacy-fält → pekar på latest
+        storageVersionPath: versionPath,
+        createdAt: firestore_1.FieldValue.serverTimestamp(),
+        createdBy: req.auth.uid,
         selection: selection ?? null,
         schema_version: 1,
-        // valfritt i framtiden: totals för snabb listning
     }, { merge: true });
     // === 10) Svar ===
     return {

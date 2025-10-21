@@ -1,26 +1,17 @@
 {
   "name": "functions",
-  "private": "true",
+  "private": true,
   "main": "lib/index.js",
-  "engines": {
-    "node": "20"
-  },
+  "type": "commonjs",
+  "engines": { "node": "20" },
   "scripts": {
-    "build": "tsc",
-    "lint": "eslint --ext .ts .",
-    "serve": "firebase emulators:start --only functions",
-    "deploy": "firebase deploy --only functions"
+    "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@google-cloud/firestore": "^7.11.6",
-    "@sparticuz/chromium": "^133.0.0",
-    "firebase-admin": "^13.5.0",
-    "firebase-functions": "^6.5.0"
+    "firebase-admin": "12.6.0",
+    "firebase-functions": "5.1.0"
   },
   "devDependencies": {
-    "@types/node": "^20.14.10",
-    "eslint": "^9.10.0",
-    "typescript": "^5.4.0"
-  },
-  "license": "UNLICENSED"
+    "typescript": "5.4.5"
+  }
 }

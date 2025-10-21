@@ -1,20 +1,14 @@
+// functions/tsconfig.json
 {
   "compilerOptions": {
     "target": "ES2020",
-    "module": "commonjs",
-    "lib": ["ES2020"],
-    "moduleResolution": "node",
-    "rootDir": "src",
+    "module": "CommonJS",
     "outDir": "lib",
-
+    "rootDir": "src",
     "strict": true,
-    "noImplicitAny": false,   // ⬅️ lägg till denna rad
     "esModuleInterop": true,
     "skipLibCheck": true,
-
-    "types": ["node"],
-    "typeRoots": ["./node_modules/@types"]
+    "resolveJsonModule": true
   },
-  "compileOnSave": true,
-  "include": ["src"]
+  "include": ["src/**/*"]
 }

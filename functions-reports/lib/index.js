@@ -1,5 +1,11 @@
 "use strict";
+// functions-reports/src/index.ts
+// CommonJS-aggregator för tunga rapport-endpoints i codebase "reports".
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.saveReportManifest = void 0;
-var saveReportManifest_1 = require("./saveReportManifest");
-Object.defineProperty(exports, "saveReportManifest", { enumerable: true, get: function () { return saveReportManifest_1.saveReportManifest; } });
+const saveReportManifest_1 = require("./saveReportManifest");
+// Lägg ev. fler exports här framöver, t.ex.
+// import { buildCO2Preview } from "./buildCO2Preview";
+module.exports = {
+    saveReportManifest: saveReportManifest_1.saveReportManifest,
+    // buildCO2Preview,
+};

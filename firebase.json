@@ -17,66 +17,22 @@
   ],
   "hosting": {
     "public": "build",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ],
-    "rewrites": [
-      {
-        "source": "**",
-        "destination": "/index.html"
-      }
-    ],
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [{ "source": "**", "destination": "/index.html" }],
     "headers": [
-      {
-        "source": "/index.html",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "no-store"
-          }
-        ]
-      },
-      {
-        "source": "/config.js",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "no-store"
-          }
-        ]
-      },
+      { "source": "/index.html", "headers": [{ "key": "Cache-Control", "value": "no-store" }] },
+      { "source": "/config.js", "headers": [{ "key": "Cache-Control", "value": "no-store" }] },
       {
         "source": "**/*.@(js|css|png|jpg|jpeg|gif|svg|webp|ico|woff2?)",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "public, max-age=31536000, immutable"
-          }
-        ]
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
       }
     ]
   },
-  "firestore": {
-    "rules": "firestore.rules"
-  },
+  "firestore": { "rules": "firestore.rules" },
   "emulators": {
-    "firestore": {
-      "host": "127.0.0.1",
-      "port": 8085
-    },
-    "ui": {
-      "host": "127.0.0.1",
-      "port": 4002
-    },
-    "hub": {
-      "host": "127.0.0.1",
-      "port": 4402
-    },
-    "logging": {
-      "host": "127.0.0.1",
-      "port": 4502
-    }
+    "firestore": { "host": "127.0.0.1", "port": 8085 },
+    "ui": { "host": "127.0.0.1", "port": 4002 },
+    "hub": { "host": "127.0.0.1", "port": 4402 },
+    "logging": { "host": "127.0.0.1", "port": 4502 }
   }
 }

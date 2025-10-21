@@ -1,13 +1,15 @@
-// functions/src/saveReportManifest.ts
+// functions-reports/src/saveReportManifest.ts
+// Server-sida: spara rapport-manifest till GCS + metadata i Firestore.
+// Anpassad till vår nya struktur: lazy admin-init via ./_admin, CommonJS-aggregator i index.ts.
+
 import { onCall, HttpsError } from "firebase-functions/v2/https";
-import * as admin from "firebase-admin";
+import { REGION, assertAdmin, getDb, getAdminApp } from "./_admin";
+import { FieldValue } from "firebase-admin/firestore";
 import * as crypto from "crypto";
 
-if (!admin.apps.length) admin.initializeApp();
-
 type SaveManifestInput = {
-  policy: string;            // t.ex. "asOfCompletedAt"
-  selectionHash: string;     // klientens hash (behålls för felsökning)
+  policy: string;            // t.ex. "asOfCompletedAt" | "latest"
+  selectionHash: string;     // klientens hash (sparas endast för felsökning)
   selection?: unknown;       // valfritt (för revision/felsökning)
   manifest: any;             // själva manifestet (JSON-serialiserbart, litet)
 };
@@ -41,30 +43,28 @@ function sha256Hex(s: string) {
   return crypto.createHash("sha256").update(s, "utf8").digest("hex");
 }
 
-export const saveReportManifest = onCall(
+export const saveReportManifest = onCall<SaveManifestInput>(
   {
-    region: "europe-west1",
+    region: REGION,
     cors: true,
-    enforceAppCheck: false,   // prod: på. Dev: använd debug token.
+    enforceAppCheck: false,   // prod: true. Dev: false/debug token.
     timeoutSeconds: 20,
     memory: "256MiB",
   },
   async (req) => {
-    // === 1) Auth krävs ===
-    const uid = req.auth?.uid;
-    if (!uid) throw new HttpsError("unauthenticated", "Login required");
+    // === 1) Auth krävs + (implicit) admin-guard i klientflödet ===
+    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Login required");
+    // Vill du hårdspärra till admin här också? Av/på genom nästa rad:
+    // assertAdmin(req);
 
     // === 2) Läs & validera input ===
-    const data = req.data as SaveManifestInput | undefined;
+    const data = req.data;
     if (!data || typeof data !== "object") {
       throw new HttpsError("invalid-argument", "Invalid payload");
     }
     const { policy, selectionHash: clientSelectionHash, selection, manifest } = data;
     if (!policy || manifest == null) {
-      throw new HttpsError(
-        "invalid-argument",
-        "Missing fields: policy, manifest"
-      );
+      throw new HttpsError("invalid-argument", "Missing fields: policy, manifest");
     }
 
     const manifestJsonRaw = JSON.stringify(manifest);
@@ -102,11 +102,11 @@ export const saveReportManifest = onCall(
     });
     const selectionHash = sha256Hex(selectionKey);
 
-    // === 6) Manifest-ID (behåll samma formel men använd serverside-hash) ===
+    // === 6) Manifest-ID (deterministiskt) ===
     const basis = `${orgId}|${policy}|${selectionHash}`;
     const manifestId = sha256Hex(basis);
 
-    // === 7) Förbered paths: skriv både "versions" (append) och "latest" (overwrite) ===
+    // === 7) Paths för GCS: skriv både "versions" (append) och "latest" (overwrite) ===
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, "0");
     const yyyy = now.getFullYear();
@@ -122,22 +122,20 @@ export const saveReportManifest = onCall(
     const latestPath = `${base}/latest.json`;
     const versionPath = `${base}/versions/${yyyy}/${mm}/${dd}/${stamp}.json`;
 
-    // === 8) Skriv till Cloud Storage (Admin SDK) ===
-    //  - Innehåll: samma manifest som input, men med serverside-hash injicerad
+    // === 8) Skriv till Cloud Storage (via lazy-admin getAdminApp) ===
     const body = JSON.stringify(
       {
         ...m,
         selection: {
           ...(m?.selection ?? {}),
-          hash: selectionHash,           // <-- serverns hash (stabil)
+          hash: selectionHash, // serverns hash (stabil)
         },
-        // Lämna övrig struktur orörd
       },
       null,
       2
     );
 
-    const bucket = admin.storage().bucket(); // default bucket
+    const bucket = getAdminApp().storage().bucket(); // default bucket
 
     const commonOpts = {
       contentType: "application/json; charset=utf-8",
@@ -146,24 +144,21 @@ export const saveReportManifest = onCall(
         metadata: {
           orgId,
           policy,
-          selectionHash,                 // serverside hash
-          selectionHashClient: String(clientSelectionHash || ""), // för felsökning
-          createdBy: uid,
+          selectionHash,                               // serverside hash
+          selectionHashClient: String(clientSelectionHash || ""), // felsökning
+          createdBy: req.auth.uid,
         },
         cacheControl: "no-store",
       },
-    };
+    } as const;
 
-    // 8a) Skriv versionsfil (append)
+    // 8a) Append-version
     await bucket.file(versionPath).save(body, commonOpts);
-
-    // 8b) Skriv latest (overwrite/idempotent)
+    // 8b) Senaste/idempotent
     await bucket.file(latestPath).save(body, commonOpts);
 
-    // === 9) Skriv metadata till Firestore (behåll collection/format; uppdatera path) ===
-    const db = admin.firestore();
-    const nowTs = admin.firestore.FieldValue.serverTimestamp();
-
+    // === 9) Metadata i Firestore (lazy via getDb) ===
+    const db = getDb();
     await db
       .collection("orgs")
       .doc(orgId)
@@ -174,22 +169,21 @@ export const saveReportManifest = onCall(
           orgId,
           manifestId,
           policy,
-          selectionHash,             // serverside
+          selectionHash,                 // serverside
           selectionHashClient: String(clientSelectionHash || null),
-          storagePath: latestPath,   // behåll legacy-fältet: peka på latest
-          storageVersionPath: versionPath, // ny pekare till versionen
-          createdAt: nowTs,
-          createdBy: uid,
+          storagePath: latestPath,       // legacy-fält → pekar på latest
+          storageVersionPath: versionPath,
+          createdAt: FieldValue.serverTimestamp(),
+          createdBy: req.auth.uid,
           selection: selection ?? null,
           schema_version: 1,
-          // valfritt i framtiden: totals för snabb listning
         },
         { merge: true }
       );
 
     // === 10) Svar ===
     return {
-      ok: true,
+      ok: true as const,
       manifestId,
       selectionHash,                 // serverside
       paths: { latestPath, versionPath },

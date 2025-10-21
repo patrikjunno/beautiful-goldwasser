@@ -918,46 +918,6 @@ async function assertAdminOrThrow() {
 };
 
 
-async function wipeAllTestData() {
-  await assertAdminOrThrow();
-
-  const targets = [
-    "reports",
-    "itInventory",
-    "models",
-    "articles",
-    "customers",
-    "serialIndex", // små "s" – matchar din DB
-  ];
-
-  console.log("WIPING collections:", targets.join(", "));
-
-  for (const coll of targets) {
-    await deleteCollectionHard(coll);
-  }
-
-  // rensa alla foton
-  await deleteStorageFolderRecursive("photos");
-
-  console.log("Wipe DONE.");
-  alert("Wipe DONE.");
-}
-
-// Exponera i dev (använd samma guard som övriga dev-helpers)
-; (window as any).wipeAllTestData = wipeAllTestData;
-; (window as any).wipeCollections = async (arr: string[]) => {
-  await assertAdminOrThrow();
-  for (const c of arr) await deleteCollectionHard(c);
-  console.log("wipeCollections DONE.");
-};
-; (window as any).wipePhotos = async () => {
-  await assertAdminOrThrow();
-  await deleteStorageFolderRecursive("photos");
-};
-
-
-
-
 const toKey = (s: string) => s.trim().toLocaleLowerCase("sv");
 
 async function uploadDataUrlWithProgress(

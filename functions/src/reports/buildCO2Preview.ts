@@ -1,11 +1,9 @@
 // functions/src/reports/buildCO2Preview.ts
-import * as functions from "firebase-functions";
-import * as admin from "firebase-admin";
-import type { Query } from "firebase-admin/firestore";
+import { onRequest } from "firebase-functions/v2/https";
+import { REGION, getDb, getAuth } from "../_admin";
+import { FieldPath, Query } from "firebase-admin/firestore";
 
-if (!admin.apps.length) admin.initializeApp();
-const db = admin.firestore();
-
+/* ========= Typer ========= */
 type Factor = {
     label: string;
     medianWeightKg: number;
@@ -16,10 +14,10 @@ type Factor = {
 type BuildPreviewRequest = {
     fromDate: string;          // "YYYY-MM-DD" eller ISO
     toDate: string;            // "YYYY-MM-DD" eller ISO
-    basis?: "completedAt";     // vi stödjer completedAt nu (kan byggas ut)
-    customerIds: string[];     // kund-ID:n/keys som ska ingå
+    basis?: "completedAt";     // nuvarande stöd
+    customerIds: string[];     // kund-ID:n som ska ingå
     productTypeIds?: string[]; // valfritt filter
-    factorPolicy?: "latest";   // lämnar öppen för framtida policies
+    factorPolicy?: "latest";   // reserverat för framtiden
 };
 
 type Row = {
@@ -48,8 +46,8 @@ type BuildPreviewResponse = {
     selection: { itemIds: string[] };
 };
 
+/* ========= Hjälpare ========= */
 function ymdToDate(s: string): Date {
-    // Tillåt "YYYY-MM-DD" och ISO, normaliserar till 00:00:00 och 23:59:59
     const d = new Date(s);
     if (!isNaN(d.getTime())) return d;
     const [y, m, day] = s.split("-").map(Number);
@@ -68,38 +66,31 @@ function chunk<T>(arr: T[], size = 10): T[][] {
     return out;
 }
 
+/* ========= Handler ========= */
 export async function buildCO2PreviewHandler(req: any, res: any): Promise<void> {
     try {
-        // ---- CORS: sätt headrar först, för ALLA svar ----
+        // ---- CORS ----
         const origin = String(req.headers.origin || "");
         const allowedOrigins = new Set([
             "http://localhost:3000",
-            // lägg till din proddomän här, t.ex:
             // "https://app.dindomän.se",
         ]);
 
-        // Tillåt specifika origins (rekommenderat). För snabbtest: använd "*" (utan credentials).
         if (allowedOrigins.has(origin)) {
             res.set("Access-Control-Allow-Origin", origin);
             res.set("Vary", "Origin");
         } else {
-            // fallback, funkar när du kör utan credentials i fetch (du gör credentials: "omit")
             res.set("Access-Control-Allow-Origin", "*");
         }
-
         res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
 
-        // Echo tillbaka de headers browsern begär i preflight
         const reqHeaders = req.headers["access-control-request-headers"];
-        if (reqHeaders) {
-            res.set("Access-Control-Allow-Headers", String(reqHeaders));
-        } else {
-            res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-        }
+        if (reqHeaders) res.set("Access-Control-Allow-Headers", String(reqHeaders));
+        else res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
-        res.set("Access-Control-Max-Age", "86400"); // cachea preflight
+        res.set("Access-Control-Max-Age", "86400");
 
-        // ---- Preflight ----
+        // Preflight
         if (req.method === "OPTIONS") {
             res.status(204).send();
             return;
@@ -110,14 +101,10 @@ export async function buildCO2PreviewHandler(req: any, res: any): Promise<void> 
             return;
         }
 
-        if (req.method !== "POST") {
-            res.status(405).json({ error: "Use POST" });
-            return;
-        }
+        // === Firestore via lazy-admin ===
+        const db = getDb();
 
-        // ...resten av din kod oförändrad...
-
-
+        // === Input ===
         const body = req.body as BuildPreviewRequest;
         const {
             fromDate,
@@ -141,7 +128,38 @@ export async function buildCO2PreviewHandler(req: any, res: any): Promise<void> 
             return;
         }
 
-        // (1) LÄS FAKTORER (productTypes) — fryses i svaret
+        // === NYTT: Filtrera customerIds utifrån ID-token om användaren inte är admin ===
+        let effectiveCustomerIds: string[] = customerIds.map(String);
+        const authHeader = String(req.headers.authorization || "");
+        const m = authHeader.match(/^Bearer\s+(.+)$/i);
+        if (m) {
+            try {
+                const token = await getAuth().verifyIdToken(m[1]);
+                const isAdmin =
+                    (token as any)?.roles?.admin === true ||
+                    (token as any)?.admin === true ||
+                    (token.role as string) === "admin";
+
+                if (!isAdmin) {
+                    const allowed = new Set<string>(
+                        Array.isArray((token as any).customerKeys)
+                            ? (token as any).customerKeys.map(String)
+                            : []
+                    );
+                    const filtered = effectiveCustomerIds.filter((id) => allowed.has(id));
+                    if (filtered.length === 0) {
+                        res.status(403).json({ error: "No access to requested customerIds" });
+                        return;
+                    }
+                    effectiveCustomerIds = filtered;
+                }
+            } catch {
+                // Ogiltigt/utgånget token: låt gå vidare oförändrat (admin-flöden kan sakna token).
+                // Vill du låsa hårt: returnera 401 här istället.
+            }
+        }
+
+        // (1) FAKTORER (productTypes) — frys i svaret
         const ptSnap = await db.collection("productTypes").get();
         const factorsUsed: Record<string, Factor> = {};
         ptSnap.forEach(doc => {
@@ -155,13 +173,13 @@ export async function buildCO2PreviewHandler(req: any, res: any): Promise<void> 
             };
         });
 
-        // (2) LÄS KUNDNAMN (om ni har en customers-collection) — annars härled via ID
+        // (2) KUNDNAMN (om customers-collection finns)
         const customersIncluded: Record<string, string> = {};
-        const custChunks = chunk(customerIds, 10);
+        const custChunks = chunk(effectiveCustomerIds, 10);
         for (const ch of custChunks) {
             const qs = await db
                 .collection("customers")
-                .where(admin.firestore.FieldPath.documentId(), "in", ch)
+                .where(FieldPath.documentId(), "in", ch as any)
                 .get()
                 .catch(() => null);
             if (qs) {
@@ -173,13 +191,12 @@ export async function buildCO2PreviewHandler(req: any, res: any): Promise<void> 
                 ch.forEach(id => { if (!customersIncluded[id]) customersIncluded[id] = id; });
             }
         }
-        customerIds.forEach(id => { if (!customersIncluded[id]) customersIncluded[id] = id; });
+        effectiveCustomerIds.forEach(id => { if (!customersIncluded[id]) customersIncluded[id] = id; });
 
-        // (3) QUERY INVENTORY inom period & kund(er)
+        // (3) INVENTORY inom period & kund(er)
         const from = ymdToDate(fromDate);
         const to = endOfDay(ymdToDate(toDate));
 
-        // För snabb typ-check vid klientfilter i minnet
         const typeAllow: Set<string> | null =
             Array.isArray(productTypeIds) && productTypeIds.length
                 ? new Set(productTypeIds.map(String))
@@ -189,8 +206,8 @@ export async function buildCO2PreviewHandler(req: any, res: any): Promise<void> 
         type AggKey = `${string}|${string}`; // customerId|productTypeId
         const buckets = new Map<AggKey, { A: number; B: number; C: number; D: number; E: number }>();
 
-        for (const group of chunk(customerIds, 10)) {
-            // OBS: ENDAST ETT "in" → på customerId. Typ filtreras i minnet.
+        for (const group of chunk(effectiveCustomerIds, 10)) {
+            // EN "in" ⇒ på customerId. Typ filtreras i minnet.
             let q: Query = db
                 .collection("itInventory")
                 .where("completed", "==", true)
@@ -199,14 +216,12 @@ export async function buildCO2PreviewHandler(req: any, res: any): Promise<void> 
                 .where("customerId", "in", group as any);
 
             const snap = await q.get();
-
             snap.forEach(doc => {
                 const d = doc.data() || {};
                 const custId = String((d as any).customerId ?? (d as any).customer ?? "").trim();
                 const typeId = String((d as any).productTypeId ?? (d as any).productType ?? "").trim();
                 if (!custId || !typeId) return;
 
-                // Klientfilter på typ (i minnet) för att undvika 2x "in" i samma query
                 if (typeAllow && !typeAllow.has(typeId)) return;
 
                 const grade = String((d as any).grade ?? "").toUpperCase() as "A" | "B" | "C" | "D" | "E";
@@ -220,7 +235,7 @@ export async function buildCO2PreviewHandler(req: any, res: any): Promise<void> 
             });
         }
 
-        // (4) Bygg perCustomer-rows med massor/CO2 från frysta faktorer
+        // (4) perCustomer-rows med massor/CO2 från frysta faktorer
         const perCustomerMap = new Map<string, Row[]>();
         for (const [key, counts] of buckets.entries()) {
             const [customerId, productTypeId] = key.split("|");
@@ -248,11 +263,11 @@ export async function buildCO2PreviewHandler(req: any, res: any): Promise<void> 
             perCustomerMap.get(customerId)!.push(row);
         }
 
-        // (5) Summera per kund + grand totals (tomma kunder får tomma rows)
+        // (5) Summera per kund + grand totals
         const perCustomer: CustomerBucket[] = [];
         const grand = { A: 0, B: 0, C: 0, D: 0, E: 0, eWasteKg: 0, recycledKg: 0, co2Kg: 0, total: 0 };
 
-        for (const custId of customerIds) {
+        for (const custId of effectiveCustomerIds) {
             const rows = perCustomerMap.get(custId) ?? [];
             const totals = rows.reduce((acc, r) => ({
                 A: acc.A + r.A,
@@ -279,7 +294,8 @@ export async function buildCO2PreviewHandler(req: any, res: any): Promise<void> 
         }
 
         const response: BuildPreviewResponse = {
-            filters: { fromDate, toDate, basis, customerIds, productTypeIds, factorPolicy },
+            // ⬇️ returnera de "effektiva" (ev. filtrerade) id:na i filters
+            filters: { fromDate, toDate, basis, customerIds: effectiveCustomerIds, productTypeIds, factorPolicy },
             customersIncluded,
             factorsUsed,
             perCustomer,
@@ -288,11 +304,11 @@ export async function buildCO2PreviewHandler(req: any, res: any): Promise<void> 
         };
 
         res.status(200).json(response);
-        return;
-
     } catch (err: any) {
         console.error("[buildCO2Preview] error:", err);
         res.status(500).json({ error: err?.message ?? "Internal error" });
-        return;
     }
 }
+
+/* ========= Cloud Function export ========= */
+export const buildCO2Preview = onRequest({ region: REGION }, buildCO2PreviewHandler);
