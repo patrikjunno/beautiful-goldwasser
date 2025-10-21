@@ -9,7 +9,7 @@ import type { FirebaseStorage } from "firebase/storage";
 
 import { getAuth } from "firebase/auth";
 
-import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
+// import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 
 // ---- Typer för runtime-config (från /config.js) ----
 type RuntimeFirebaseConfig = {
@@ -39,8 +39,7 @@ const envCfg = {
   apiKey: process.env.REACT_APP_FIREBASE_API_KEY || "",
   authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN || "it-returns.firebaseapp.com",
   projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID || "it-returns",
-  // SDK använder appspot.com
-  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET || "it-returns.appspot.com",
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET || "it-returns.firebasestorage.app",
   messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID || "368686698016",
   appId: process.env.REACT_APP_FIREBASE_APP_ID || "1:368686698016:web:e376727b2881acdab93645",
 };
@@ -51,23 +50,33 @@ const firebaseConfig = { ...envCfg, ...runtimeCfg };
 // ---- Initiera appen endast en gång ----
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 
+// ===== Email verification settings =====
+export const EMAIL_VERIFICATION_ACS = {
+  url: "https://it-returns.web.app/verify", // sida i din app som tar emot oobCode
+  handleCodeInApp: true,
+};
+
 // ---- App Check (reCAPTCHA v3) ----
 const appCheckSiteKey =
   process.env.REACT_APP_RECAPTCHA_SITE_KEY ||
   (typeof window !== "undefined" && (window as any).__GOLDWASSER_CONFIG__?.appCheck?.siteKey) ||
   "";
 
-// ✅ Initiera bara i production (undvik X-Firebase-AppCheck i dev)
-if (process.env.NODE_ENV === "production" && appCheckSiteKey) {
-  try {
-    initializeAppCheck(app, {
-      provider: new ReCaptchaV3Provider(appCheckSiteKey),
-      isTokenAutoRefreshEnabled: true,
-    });
-  } catch (err) {
-    console.warn("[AppCheck] init failed:", err);
-  }
-}
+
+
+  // ✅ Initiera bara i production (undvik X-Firebase-AppCheck i dev)
+// if (process.env.NODE_ENV === "production" && appCheckSiteKey) {
+ // try {
+  //  initializeAppCheck(app, {
+    //  provider: new ReCaptchaV3Provider(appCheckSiteKey),
+     // isTokenAutoRefreshEnabled: true,
+   // });
+ // } catch (err) {
+  //  console.warn("[AppCheck] init failed:", err);
+ // }
+// }
+
+
 
 /*
 // 🔕 DEV: inaktiverad för att undvika CORS/preflight i utveckling

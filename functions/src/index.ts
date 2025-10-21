@@ -4,7 +4,7 @@
 import { wipeAllTestData } from "./wipeAllTestData";
 import {
   setUserRole,
-  listUsers,
+  // ⬇️ OBS: ta INTE med listUsers härifrån längre
   deleteUser,
   triggerPasswordReset,
   bootstrapMakeMeAdmin,
@@ -16,6 +16,9 @@ import { whoAmI } from "./whoAmI";
 
 import { buildCO2Preview } from "./reports/buildCO2Preview";
 
+// ⬇️ NY: använd nya implementationen
+import { listUsers as listUsers2 } from "./listUsers";
+
 module.exports = {
   // Diagnostik / utility
   whoAmI,
@@ -23,7 +26,7 @@ module.exports = {
 
   // User admin
   setUserRole,
-  listUsers,
+  listUsers: listUsers2,      
   deleteUser,
   triggerPasswordReset,
   bootstrapMakeMeAdmin,
@@ -38,6 +41,6 @@ module.exports = {
   createInvoiceReport,
   deleteInvoiceReport,
 
-  // ✅ Lägg TILL denna export:
+  // Rapporter
   buildCO2Preview,
 };

@@ -53,13 +53,11 @@ function ymdToDate(s: string): Date {
     const [y, m, day] = s.split("-").map(Number);
     return new Date(y, (m ?? 1) - 1, day ?? 1);
 }
-
 function endOfDay(d: Date): Date {
     const z = new Date(d);
     z.setHours(23, 59, 59, 999);
     return z;
 }
-
 function chunk<T>(arr: T[], size = 10): T[][] {
     const out: T[][] = [];
     for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
@@ -68,6 +66,9 @@ function chunk<T>(arr: T[], size = 10): T[][] {
 
 /* ========= Handler ========= */
 export async function buildCO2PreviewHandler(req: any, res: any): Promise<void> {
+    // Starttid för logg
+    const t0 = Date.now();
+
     try {
         // ---- CORS ----
         const origin = String(req.headers.origin || "");
@@ -95,17 +96,15 @@ export async function buildCO2PreviewHandler(req: any, res: any): Promise<void> 
             res.status(204).send();
             return;
         }
-
         if (req.method !== "POST") {
             res.status(405).json({ error: "Use POST" });
             return;
         }
 
-        // === Firestore via lazy-admin ===
         const db = getDb();
 
         // === Input ===
-        const body = req.body as BuildPreviewRequest;
+        const body = (req.body || {}) as BuildPreviewRequest;
         const {
             fromDate,
             toDate,
@@ -113,7 +112,7 @@ export async function buildCO2PreviewHandler(req: any, res: any): Promise<void> 
             customerIds,
             productTypeIds,
             factorPolicy = "latest",
-        } = body || {};
+        } = body;
 
         if (!fromDate || !toDate) {
             res.status(400).json({ error: "fromDate and toDate are required" });
@@ -128,41 +127,69 @@ export async function buildCO2PreviewHandler(req: any, res: any): Promise<void> 
             return;
         }
 
-        // === NYTT: Filtrera customerIds utifrån ID-token om användaren inte är admin ===
-        let effectiveCustomerIds: string[] = customerIds.map(String);
-        const authHeader = String(req.headers.authorization || "");
-        const m = authHeader.match(/^Bearer\s+(.+)$/i);
-        if (m) {
-            try {
-                const token = await getAuth().verifyIdToken(m[1]);
-                const isAdmin =
-                    (token as any)?.roles?.admin === true ||
-                    (token as any)?.admin === true ||
-                    (token.role as string) === "admin";
+        // === Token / behörighet (loggning + filtrering) ===
+        const authHeader = String(req.headers.authorization || req.headers.Authorization || "");
+        const hasBearer = /^Bearer\s+/i.test(authHeader);
+        let uid: string | null = null;
+        let role: string | null = null;
+        let tokenCustomerKeys: string[] = [];
 
-                if (!isAdmin) {
-                    const allowed = new Set<string>(
-                        Array.isArray((token as any).customerKeys)
-                            ? (token as any).customerKeys.map(String)
-                            : []
-                    );
-                    const filtered = effectiveCustomerIds.filter((id) => allowed.has(id));
-                    if (filtered.length === 0) {
-                        res.status(403).json({ error: "No access to requested customerIds" });
-                        return;
-                    }
-                    effectiveCustomerIds = filtered;
-                }
-            } catch {
-                // Ogiltigt/utgånget token: låt gå vidare oförändrat (admin-flöden kan sakna token).
-                // Vill du låsa hårt: returnera 401 här istället.
+        if (hasBearer) {
+            try {
+                const token = await getAuth().verifyIdToken(authHeader.replace(/^Bearer\s+/i, "").trim());
+                uid = token.uid;
+                // Vi stödjer både "role" och "admin" flags i claims
+                role =
+                    (token as any).role ??
+                    ((token as any).admin === true ? "admin" : null) ??
+                    ((token as any).roles?.admin === true ? "admin" : null);
+                tokenCustomerKeys = Array.isArray((token as any).customerKeys)
+                    ? ((token as any).customerKeys as unknown[]).map(String)
+                    : [];
+            } catch (e) {
+                console.warn("[buildCO2Preview] token verify failed:", (e as Error).message);
+            }
+        } else {
+            console.warn("[buildCO2Preview] no Authorization header");
+        }
+
+        // Logga inkommande filter
+        console.log("[buildCO2Preview] incoming", {
+            hasBearer,
+            uid,
+            role,
+            tokenCustomerKeysLen: tokenCustomerKeys.length,
+            incomingCustomerIdsLen: customerIds.length,
+            sampleCustomerIds: customerIds.slice(0, 3),
+            fromDate,
+            toDate,
+            basis,
+            factorPolicy,
+            productTypeIdsLen: Array.isArray(productTypeIds) ? productTypeIds.length : 0,
+        });
+
+        // Effektiva kund-ID:n (admin = alla begärda; annars snitt mot token.customerKeys)
+        let effectiveCustomerIds = customerIds.map(String);
+        const isAdmin = role === "admin";
+        if (!isAdmin && tokenCustomerKeys.length > 0) {
+            const allow = new Set(tokenCustomerKeys);
+            effectiveCustomerIds = effectiveCustomerIds.filter((id) => allow.has(id));
+            if (effectiveCustomerIds.length === 0) {
+                res.status(403).json({ error: "No access to requested customerIds" });
+                return;
             }
         }
+
+        console.log("[buildCO2Preview] effective", {
+            effectiveCustomerIdsLen: effectiveCustomerIds.length,
+            sample: effectiveCustomerIds.slice(0, 3),
+            admin: isAdmin,
+        });
 
         // (1) FAKTORER (productTypes) — frys i svaret
         const ptSnap = await db.collection("productTypes").get();
         const factorsUsed: Record<string, Factor> = {};
-        ptSnap.forEach(doc => {
+        ptSnap.forEach((doc) => {
             const d = doc.data() || {};
             const id = doc.id;
             factorsUsed[id] = {
@@ -175,23 +202,26 @@ export async function buildCO2PreviewHandler(req: any, res: any): Promise<void> 
 
         // (2) KUNDNAMN (om customers-collection finns)
         const customersIncluded: Record<string, string> = {};
-        const custChunks = chunk(effectiveCustomerIds, 10);
-        for (const ch of custChunks) {
+        for (const ch of chunk(effectiveCustomerIds, 10)) {
             const qs = await db
                 .collection("customers")
                 .where(FieldPath.documentId(), "in", ch as any)
                 .get()
                 .catch(() => null);
             if (qs) {
-                qs.forEach(doc => {
+                qs.forEach((doc) => {
                     const d = doc.data() || {};
                     customersIncluded[doc.id] = String((d as any).name ?? (d as any).label ?? doc.id);
                 });
             } else {
-                ch.forEach(id => { if (!customersIncluded[id]) customersIncluded[id] = id; });
+                ch.forEach((id) => {
+                    if (!customersIncluded[id]) customersIncluded[id] = id;
+                });
             }
         }
-        effectiveCustomerIds.forEach(id => { if (!customersIncluded[id]) customersIncluded[id] = id; });
+        effectiveCustomerIds.forEach((id) => {
+            if (!customersIncluded[id]) customersIncluded[id] = id;
+        });
 
         // (3) INVENTORY inom period & kund(er)
         const from = ymdToDate(fromDate);
@@ -207,7 +237,6 @@ export async function buildCO2PreviewHandler(req: any, res: any): Promise<void> 
         const buckets = new Map<AggKey, { A: number; B: number; C: number; D: number; E: number }>();
 
         for (const group of chunk(effectiveCustomerIds, 10)) {
-            // EN "in" ⇒ på customerId. Typ filtreras i minnet.
             let q: Query = db
                 .collection("itInventory")
                 .where("completed", "==", true)
@@ -216,7 +245,7 @@ export async function buildCO2PreviewHandler(req: any, res: any): Promise<void> 
                 .where("customerId", "in", group as any);
 
             const snap = await q.get();
-            snap.forEach(doc => {
+            snap.forEach((doc) => {
                 const d = doc.data() || {};
                 const custId = String((d as any).customerId ?? (d as any).customer ?? "").trim();
                 const typeId = String((d as any).productTypeId ?? (d as any).productType ?? "").trim();
@@ -241,7 +270,7 @@ export async function buildCO2PreviewHandler(req: any, res: any): Promise<void> 
             const [customerId, productTypeId] = key.split("|");
             const f =
                 factorsUsed[productTypeId] ??
-                Object.values(factorsUsed).find(x => x.label.toLowerCase() === productTypeId.toLowerCase());
+                Object.values(factorsUsed).find((x) => x.label.toLowerCase() === productTypeId.toLowerCase());
 
             const label = f?.label ?? productTypeId;
             const medianWeight = Number(f?.medianWeightKg ?? 0);
@@ -269,19 +298,22 @@ export async function buildCO2PreviewHandler(req: any, res: any): Promise<void> 
 
         for (const custId of effectiveCustomerIds) {
             const rows = perCustomerMap.get(custId) ?? [];
-            const totals = rows.reduce((acc, r) => ({
-                A: acc.A + r.A,
-                B: acc.B + r.B,
-                C: acc.C + r.C,
-                D: acc.D + r.D,
-                E: acc.E + r.E,
-                eWasteKg: acc.eWasteKg + r.eWasteKg,
-                recycledKg: acc.recycledKg + r.recycledKg,
-                co2Kg: acc.co2Kg + r.co2Kg,
-                total: acc.total + r.total,
-            }), { A: 0, B: 0, C: 0, D: 0, E: 0, eWasteKg: 0, recycledKg: 0, co2Kg: 0, total: 0 });
+            const totals = rows.reduce(
+                (acc, r) => ({
+                    A: acc.A + r.A,
+                    B: acc.B + r.B,
+                    C: acc.C + r.C,
+                    D: acc.D + r.D,
+                    E: acc.E + r.E,
+                    eWasteKg: acc.eWasteKg + r.eWasteKg,
+                    recycledKg: acc.recycledKg + r.recycledKg,
+                    co2Kg: acc.co2Kg + r.co2Kg,
+                    total: acc.total + r.total,
+                }),
+                { A: 0, B: 0, C: 0, D: 0, E: 0, eWasteKg: 0, recycledKg: 0, co2Kg: 0, total: 0 }
+            );
 
-            (Object.keys(grand) as (keyof typeof grand)[]).forEach(k => {
+            (Object.keys(grand) as (keyof typeof grand)[]).forEach((k) => {
                 (grand as any)[k] += (totals as any)[k] ?? 0;
             });
 
@@ -293,8 +325,15 @@ export async function buildCO2PreviewHandler(req: any, res: any): Promise<void> 
             });
         }
 
+        // Kort sammanfattningslogg
+        console.log("[buildCO2Preview] selection", {
+            itemIdsCount: itemIds.length,
+            buckets: buckets.size,
+            perCustomer: perCustomer.length,
+        });
+
         const response: BuildPreviewResponse = {
-            // ⬇️ returnera de "effektiva" (ev. filtrerade) id:na i filters
+            // returnera de "effektiva" (ev. filtrerade) id:na i filters
             filters: { fromDate, toDate, basis, customerIds: effectiveCustomerIds, productTypeIds, factorPolicy },
             customersIncluded,
             factorsUsed,
@@ -303,9 +342,18 @@ export async function buildCO2PreviewHandler(req: any, res: any): Promise<void> 
             selection: { itemIds },
         };
 
+        const ms = Date.now() - t0;
+        console.log("[buildCO2Preview] done", {
+            uid,
+            role,
+            ms,
+            effectiveCustomerIdsLen: effectiveCustomerIds.length,
+            items: itemIds.length,
+        });
+
         res.status(200).json(response);
     } catch (err: any) {
-        console.error("[buildCO2Preview] error:", err);
+        console.error("[buildCO2Preview] error:", err?.message ?? String(err));
         res.status(500).json({ error: err?.message ?? "Internal error" });
     }
 }

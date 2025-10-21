@@ -20,7 +20,7 @@ export default function UsersAdmin() {
         email?: string;
         displayName?: string;
         disabled: boolean;
-        role: "admin" | "user";
+        role: "admin" | "user" | "customer" | "unassigned";
         emailVerified: boolean;
         createdAt?: string;
         lastLoginAt?: string;
@@ -39,7 +39,7 @@ export default function UsersAdmin() {
     const [edit, setEdit] = useState<{
         uid: string;
         email?: string;
-        role: "admin" | "user" | "customer";
+        role: "admin" | "user" | "customer" | "unassigned";
         status: "pending" | "active" | "disabled";
         customerKeys: string[];
     } | null>(null);
@@ -49,9 +49,12 @@ export default function UsersAdmin() {
         setLoading(true);
         try {
             const res: any = await fnListUsers({});
+            console.log("[UserAdmin] listUsers raw:", res?.data);
+            console.table((res?.data?.users ?? []).map((u: any) => ({ email: u.email, role: u.role, status: u.status })));
             setRows((res?.data?.users as AdminUserRow[]) || []);
             setMsg(null);
         } catch (e: any) {
+            console.error("[UserAdmin] load failed", e);
             setMsg(e?.message || "Kunde inte hämta användare.");
         } finally {
             setLoading(false);
@@ -59,6 +62,14 @@ export default function UsersAdmin() {
     };
 
     useEffect(() => {
+        // Exponera en manuell trigger i dev-konsolen
+        (window as any).__dumpUsers = async () => {
+            const res: any = await fnListUsers({});
+            console.log("[UserAdmin] __dumpUsers:", res?.data);
+            console.table((res?.data?.users ?? []).map((u: any) => ({ email: u.email, role: u.role, status: u.status })));
+            return res?.data;
+        };
+
         void load();
         void loadCustomers();
     }, []);
@@ -111,8 +122,8 @@ export default function UsersAdmin() {
 
     // Öppna redigeringspanel; läs users/<uid> och förkryssa nuvarande kunder (alltid som IDs)
     async function openEdit(u: AdminUserRow) {
-        let role: "admin" | "user" | "customer" = u.role;
-        let status: "pending" | "active" | "disabled" = (u as any).status ?? "active";
+        let role: "admin" | "user" | "customer" | "unassigned" = (u.role as any) ?? "unassigned";
+        let status: "pending" | "active" | "disabled" = (u as any).status ?? "pending";
 
         // 1) Hämta rå-keys från users/<uid> (kan vara id/ids/customers/customerKeys)
         let rawKeys: string[] = [];
@@ -204,7 +215,8 @@ export default function UsersAdmin() {
             await setUserClaims({
                 uid: edit.uid,
                 role: edit.role,
-                status: edit.status,
+                // send status only when it matters
+                status: edit.role === "customer" ? edit.status : (edit.role === "unassigned" ? "pending" : edit.status),
                 customerKeys: edit.role === "customer" ? idKeys : undefined,
             });
 
@@ -217,6 +229,21 @@ export default function UsersAdmin() {
         } finally {
             setSaving(false);
         }
+    }
+
+    function StatusBadge({ status }: { status?: "pending" | "active" | "disabled" }) {
+        const s = status ?? "pending";
+        const style: React.CSSProperties = {
+            display: "inline-block",
+            padding: "2px 8px",
+            borderRadius: 999,
+            fontSize: 12,
+            border: "1px solid",
+        };
+        if (s === "active") Object.assign(style, { background: "#ecfdf5", color: "#065f46", borderColor: "#a7f3d0" });
+        if (s === "pending") Object.assign(style, { background: "#fffbeb", color: "#92400e", borderColor: "#fde68a" });
+        if (s === "disabled") Object.assign(style, { background: "#f3f4f6", color: "#374151", borderColor: "#e5e7eb" });
+        return <span style={style}>{s}</span>;
     }
 
     return (
@@ -246,6 +273,7 @@ export default function UsersAdmin() {
                             <th style={{ textAlign: "left", borderBottom: "1px solid #eee", padding: 8 }}>Namn</th>
                             <th style={{ textAlign: "left", borderBottom: "1px solid #eee", padding: 8 }}>E-post</th>
                             <th style={{ textAlign: "left", borderBottom: "1px solid #eee", padding: 8 }}>Verifierad</th>
+                            <th style={{ textAlign: "left", borderBottom: "1px solid #eee", padding: 8 }}>Status</th>
                             <th style={{ textAlign: "left", borderBottom: "1px solid #eee", padding: 8 }}>Roll</th>
                             <th style={{ textAlign: "left", borderBottom: "1px solid #eee", padding: 8 }}>Senast inloggad</th>
                             <th style={{ textAlign: "left", borderBottom: "1px solid #eee", padding: 8 }}>Åtgärder</th>
@@ -257,6 +285,9 @@ export default function UsersAdmin() {
                                 <td style={{ padding: 8 }}>{u.displayName || "-"}</td>
                                 <td style={{ padding: 8 }}>{u.email}</td>
                                 <td style={{ padding: 8 }}>{u.emailVerified ? "Ja" : "Nej"}</td>
+                                <td style={{ padding: 8 }}>
+                                    <StatusBadge status={(u as any).status as any} />
+                                </td>
                                 <td style={{ padding: 8 }}>{u.role}</td>
                                 <td style={{ padding: 8 }}>{u.lastLoginAt || "-"}</td>
                                 <td style={{ padding: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -343,6 +374,7 @@ export default function UsersAdmin() {
                                     setEdit((p) => (p ? { ...p, role: e.target.value as "admin" | "user" | "customer" } : p))
                                 }
                             >
+                                <option value="unassigned">unassigned (ingen åtkomst)</option>
                                 <option value="admin">admin</option>
                                 <option value="user">user</option>
                                 <option value="customer">customer</option>
@@ -353,15 +385,17 @@ export default function UsersAdmin() {
                             <label className="gw-form-label">Status</label>
                             <select
                                 className="gw-input"
-                                value={(edit as any).status || "active"}
+                                value={edit.status ?? "pending"}   // ← defaulta till "pending" om saknas
                                 onChange={(e) =>
-                                    setEdit((p) => (p ? { ...p, status: e.target.value as "active" | "disabled" } : p))
+                                    setEdit((p) => (p ? { ...p, status: e.target.value as "pending" | "active" | "disabled" } : p))
                                 }
                             >
+                                <option value="pending">pending</option>
                                 <option value="active">active</option>
                                 <option value="disabled">disabled</option>
                             </select>
                         </div>
+
                     </div>
 
                     {/* Kunder (visas bara om roll = customer) */}

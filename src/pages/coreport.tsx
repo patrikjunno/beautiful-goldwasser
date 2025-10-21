@@ -10,8 +10,19 @@ import type { PDFPage } from "pdf-lib";
 
 // Lägg till Functions-anropet (server-skrivning av manifest)
 import { getFunctions, httpsCallable } from "firebase/functions";
+import { getAuth } from "firebase/auth";
 
+// (lägg nära toppen, och se till att det inte finns någon annan definition i filen)
+declare global {
+  interface Window {
+    BUILD_CO2_PREVIEW_URL?: string;
+  }
+}
 
+const BUILD_CO2_PREVIEW_URL: string =
+  (window.BUILD_CO2_PREVIEW_URL as string | undefined) ||
+  (process.env as any).REACT_APP_BUILD_CO2_PREVIEW_URL ||
+  "https://europe-west1-it-returns.cloudfunctions.net/buildCO2Preview";
 
 
 /* ===== Hjälpare ===== */
@@ -52,9 +63,6 @@ function autoReportTitle(from: string, to: string, customerKeys: string[], opts:
   return `Klimatrapport ${span}`.trim();
 }
 
-
-// === Server-side preview helper ===
-const BUILD_CO2_PREVIEW_URL = "https://europe-west1-it-returns.cloudfunctions.net/buildCO2Preview";
 
 type ServerPreview = {
   filters: {
@@ -101,22 +109,66 @@ async function fetchServerPreview(params: {
     productTypeIds: params.productTypeIds && params.productTypeIds.length ? params.productTypeIds : undefined,
     factorPolicy: params.factorPolicy ?? "latest",
   };
+
+  // 🔎 Debug: vad vi skickar
+  console.log("[CO2] outgoing payload", {
+    fromDate: payload.fromDate,
+    toDate: payload.toDate,
+    customerIds: payload.customerIds,
+    productTypeIds: payload.productTypeIds,
+  });
+  
+  
+  // 🔎 Debug: vad vi skickar
+  console.log("[CO2] outgoing payload", {
+    fromDate: payload.fromDate,
+    toDate: payload.toDate,
+    customerIds: payload.customerIds,
+    productTypeIds: payload.productTypeIds,
+  });
+
+  // Token
+  const auth = getAuth();
+  const idToken = auth.currentUser ? await auth.currentUser.getIdToken(true) : null;
+
+  console.log("[CO2] preview URL =", BUILD_CO2_PREVIEW_URL);
   const res = await fetch(BUILD_CO2_PREVIEW_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    headers: {
+      "Content-Type": "application/json",
+      ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+    },
+    body: JSON.stringify(payload), // ✅ använd payload här
     credentials: "omit",
     mode: "cors",
   });
+
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
     throw new Error(`buildCO2Preview failed: ${res.status} ${res.statusText} ${txt}`);
   }
-  return res.json();
+
+  const json = (await res.json()) as ServerPreview;
+  console.log("[DBG] grandTotals (server)", json.grandTotals);
+  console.log("[DBG] perCustomer rows", json.perCustomer?.map(b => b.rows.length));
+
+
+  // 🔎 Debug: hur servern tolkade filtret
+  console.log("[CO2] server filters", {
+    filters_customerIds: (json as any)?.filters?.customerIds,
+    customersIncluded: (json as any)?.customersIncluded,
+  });
+  console.log("[CO2] selection summary", {
+    processed: (json as any)?.processed,
+    skipped: (json as any)?.skipped,
+    itemIds_count: (json as any)?.selection?.itemIds?.length ?? 0,
+  });
+
+  return json;
 }
 
-// --- NYTT: lokal state för server-preview ---
-const [serverPreview, setServerPreview] = useState<ServerPreview | null>(null);
+
+
 
 // --- NYTT: översätt serverns svar till samma "platta" rader som tabellen förväntar sig ---
 function flattenRowsFromServer(sp: ServerPreview) {
@@ -189,6 +241,9 @@ type COReportProps = {
 
 export default function COReport(props: COReportProps) {
   const { loading, error } = props;
+
+  // --- NYTT: lokal state för server-preview ---
+  const [serverPreview, setServerPreview] = useState<ServerPreview | null>(null);
 
   /* -------- Lokal fallback-state (om props inte skickas) -------- */
   const [localFrom, setLocalFrom] = useState<string>(
@@ -1423,36 +1478,58 @@ export default function COReport(props: COReportProps) {
         (payload.manifestPreview as any)?.filtersUsed?.to ||
         (payload.manifestPreview as any)?.filters?.toDate || "";
       const customerIds: string[] =
-        (Array.isArray(vCustomers) && vCustomers.length ? vCustomers : undefined) ||
+        (safeSelectedCustomers.length ? safeSelectedCustomers : undefined) ||
         (payload.manifestPreview as any)?.filtersUsed?.customers ||
         (payload.manifestPreview as any)?.filters?.customerIds || [];
+
       const productTypeIds: string[] | undefined =
-        (Array.isArray(vTypes) && vTypes.length ? vTypes : undefined) ||
+        (safeSelectedTypes.length ? safeSelectedTypes : undefined) ||
         (payload.manifestPreview as any)?.filtersUsed?.types ||
         (payload.manifestPreview as any)?.filters?.productTypeIds || undefined;
 
+
+    
+      // ... allt ovan orört ...
+
+      // Skapa payloadet av de värden du just räknade fram
       const serverPayload = {
         fromDate,
         toDate,
         basis: "completedAt" as const,
         customerIds,
-        productTypeIds: productTypeIds && productTypeIds.length ? productTypeIds : undefined,
+        productTypeIds: (productTypeIds && productTypeIds.length) ? productTypeIds : undefined,
         factorPolicy: "latest" as const,
       };
+      // ✅ Hämta ID-token (om inloggad)
+      const auth = getAuth();
+      const idToken = auth.currentUser ? await auth.currentUser.getIdToken(true) : null;
 
+      // (valfritt – men tydligare feedback)
+      if (!idToken) {
+        alert("Du måste vara inloggad för att exportera rapporten.");
+        setExporting(false);
+        return;
+      }
+
+      console.debug("[EXPORT] POST buildCO2Preview", serverPayload);
       console.debug("[EXPORT] POST buildCO2Preview", serverPayload);
       const res = await fetch(PREVIEW_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          // ✅ Skicka token i Authorization-header om vi har en
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+        },
         body: JSON.stringify(serverPayload),
         credentials: "omit",
         mode: "cors",
       });
+
       if (!res.ok) {
         const txt = await res.text().catch(() => "");
         throw new Error(`buildCO2Preview failed: ${res.status} ${res.statusText} ${txt}`);
       }
-      const serverPreview = await res.json() as {
+      const serverResp = await res.json() as {
         filters: { fromDate: string; toDate: string; basis: "completedAt"; customerIds: string[]; productTypeIds?: string[]; factorPolicy?: "latest" };
         customersIncluded: Record<string, string>;
         factorsUsed: Record<string, { label: string; medianWeightKg: number; co2PerUnitKg: number; schemaVersion: number }>;
@@ -1475,7 +1552,7 @@ export default function COReport(props: COReportProps) {
       };
 
       // ===== 2) Bygg rader (flatten per kund × typ) =====
-      const builtRows = serverPreview.perCustomer.flatMap((bucket) =>
+      const builtRows = serverResp.perCustomer.flatMap((bucket) =>
         bucket.rows.map((r) => ({
           customerId: bucket.customerId,
           customerName: bucket.customerName,
@@ -1500,17 +1577,17 @@ export default function COReport(props: COReportProps) {
           logoUrl: payload.logoUrl,
         },
         filtersUsed: {
-          from: serverPreview.filters.fromDate,
-          to: serverPreview.filters.toDate,
+          from: serverResp.filters.fromDate,
+          to: serverResp.filters.toDate,
           customers: [...customerIds],
           types: productTypeIds ? [...productTypeIds] : [],
         },
-        factorsUsed: serverPreview.factorsUsed,
-        totals: serverPreview.grandTotals,
+        factorsUsed: serverResp.factorsUsed,
+        totals: serverResp.grandTotals,
         rows: builtRows,
         selection: {
-          ids: serverPreview.selection.itemIds,
-          count: Number(serverPreview.grandTotals?.total ?? serverPreview.selection.itemIds.length),
+          ids: serverResp.selection.itemIds,
+          count: Number(serverResp.grandTotals?.total ?? serverResp.selection.itemIds.length),
           hash: selectionHash,
         },
       };
@@ -1844,31 +1921,44 @@ export default function COReport(props: COReportProps) {
               type="button"
               className="btn btn-primary"
               onClick={async () => {
+                console.log("[TEST] safeSelected", { safeSelectedCustomers, safeSelectedTypes });
                 try {
                   const payload = {
                     fromDate: vFrom,
                     toDate: vTo,
-                    customerIds: vCustomers,                // exakt de valda kunderna
-                    productTypeIds: vTypes.length ? vTypes : undefined,
+                    customerIds: safeSelectedCustomers,
+                    productTypeIds: safeSelectedTypes.length ? safeSelectedTypes : undefined,
                     basis: "completedAt" as const,
                     factorPolicy: "latest" as const,
                   };
 
-                  const res = await fetch(BUILD_CO2_PREVIEW_URL, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload),
-                    credentials: "omit",
-                    mode: "cors",
+
+                  const sp: ServerPreview = await fetchServerPreview(payload);
+                  setServerPreview(sp);
+                  (window as any).lastServerPreview = sp;
+                  (window as any).lastFlatRows = flattenRowsFromServer(sp);
+                  console.log("[DBG] grandTotals (client)", sp.grandTotals);
+                  console.log("[DBG] flat rows", (window as any).lastFlatRows?.length ?? 0);
+
+
+                  // 👇 Debug: gör det lätt att inspektera i konsolen
+                  (window as any).lastServerPreview = sp;
+                  (window as any).lastFlatRows = flattenRowsFromServer(sp);
+                  console.log("[DBG] perCustomer buckets:", sp.perCustomer?.length ?? 0);
+                  console.log("[DBG] grandTotals:", sp.grandTotals);
+                  console.log("[DBG] flat rows:", (window as any).lastFlatRows?.length ?? 0);
+
+                  const ids = Array.isArray(sp.selection?.itemIds) ? sp.selection.itemIds : [];
+                  const count = Number(sp.grandTotals?.total ?? ids.length);
+                  const hash = await sha256Hex(JSON.stringify([...ids].sort()));
+
+                  setSnapshotMeta({
+                    timestamp: Date.now(),
+                    count,
+                    filters: { from: vFrom, to: vTo, customers: [...vCustomers], types: [...vTypes] },
+                    itemIds: [...ids],
+                    selectionHash: hash,
                   });
-
-                  if (!res.ok) {
-                    const txt = await res.text().catch(() => "");
-                    throw new Error(`buildCO2Preview failed: ${res.status} ${res.statusText} ${txt}`);
-                  }
-
-                  const sp: ServerPreview = await res.json();
-                  setServerPreview(sp);                     // <- NYCKELN: lagra svaret
                 } catch (e) {
                   console.error(e);
                   alert(e instanceof Error ? e.message : String(e));
@@ -1883,6 +1973,7 @@ export default function COReport(props: COReportProps) {
             >
               {loading ? "Laddar…" : "Ladda förhandsvisning"}
             </button>
+
           </div>
         </div>
 
@@ -1971,8 +2062,8 @@ export default function COReport(props: COReportProps) {
 
           <div>
             {(() => {
-              const d: any = (preview as any)?.display ?? {};
-              const t = d?.totals ?? {};
+              const d: any = (preview as any)?.display ?? (preview as any) ?? {};
+              const t = serverPreview?.grandTotals ?? d?.totals ?? {};
               return (
                 <>
                   Totalt — Enheter: <b>{t?.total ?? 0}</b>,{" "}
@@ -1997,58 +2088,135 @@ export default function COReport(props: COReportProps) {
           <div style={{ marginTop: 16 }}>
             <h3 className="gw-h3" style={{ margin: "8px 0" }}>Per produkttyp</h3>
 
-            <table style={{ borderCollapse: "collapse", width: "100%" }}>
+            <table style={{ borderCollapse: "collapse", width: "100%", fontVariantNumeric: "tabular-nums" }}>
+
               <thead>
                 <tr>
-                  <th>Typ</th>
-                  <th>Antal</th>
-                  <th>A</th>
-                  <th>B</th>
-                  <th>C</th>
-                  <th>D</th>
-                  <th>E</th>
-                  <th><span title="Uppskattad vikt som INTE blivit avfall tack vare återbruk (grader A–D).">Undviket e-waste (kg)</span></th>
-                  <th><span title="Uppskattad vikt som gått till återvinning när enheter inte var återbrukbara (grad E).">Återvunnet avfall (kg)</span></th>
-                  <th><span title="Beräknat på resålda enheter × CO2-schablon per produkttyp. Re-used = 0 kg.">Undvikna CO2-utsläpp (kg)</span></th>
+                  <th style={TH}>Typ</th>
+                  <th style={THnum}>Antal</th>
+                  <th style={THnum}>A</th>
+                  <th style={THnum}>B</th>
+                  <th style={THnum}>C</th>
+                  <th style={THnum}>D</th>
+                  <th style={THnum}>E</th>
+                  <th style={THnum}>
+                    <span title="Uppskattad vikt som INTE blivit avfall tack vare återbruk (grader A–D).">
+                      Undviket e-waste (kg)
+                    </span>
+                  </th>
+                  <th style={THnum}>
+                    <span title="Uppskattad vikt som gått till återvinning när enheter inte var återbrukbara (grad E).">
+                      Återvunnet avfall (kg)
+                    </span>
+                  </th>
+                  <th style={THnum}>
+                    <span title="Beräknat på resålda enheter × CO2-schablon per produkttyp. Re-used = 0 kg.">
+                      Undvikna CO2-utsläpp (kg)
+                    </span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {(() => {
-                  const d: any = (preview as any)?.display ?? {};
-                  const rows: any[] | null = Array.isArray(d.rows) ? d.rows : null;
+                  const d: any = (preview as any)?.display ?? (preview as any) ?? {};
 
+                  // ---- rows: från preview eller serverPreview-fallback ----
+                  let rows: any[] | null = Array.isArray(d.rows) ? d.rows : null;
+                  if ((!rows || rows.length === 0) && serverPreview) {
+                    rows = flattenRowsFromServer(serverPreview);
+                  }
+
+                  // ---- entries för render + totals beräkning ----
                   const entries: Array<[string, any]> = rows
                     ? rows.map((r) => [
                       String(r.productType ?? r.label ?? "okänd"),
                       {
                         label: r.label ?? r.productType,
-                        count: r.total ?? r.count ?? 0,
-                        grades: { A: r.A ?? 0, B: r.B ?? 0, C: r.C ?? 0, D: r.D ?? 0, E: r.E ?? 0 },
-                        eWasteKg: r.eWasteKg ?? 0,
-                        recycledKg: r.recycledKg ?? 0,
-                        co2Kg: r.co2Kg ?? 0,
+                        count: Number(r.total ?? r.count ?? 0),
+                        grades: {
+                          A: Number(r.A ?? 0),
+                          B: Number(r.B ?? 0),
+                          C: Number(r.C ?? 0),
+                          D: Number(r.D ?? 0),
+                          E: Number(r.E ?? 0),
+                        },
+                        eWasteKg: Number(r.eWasteKg ?? 0),
+                        recycledKg: Number(r.recycledKg ?? 0),
+                        co2Kg: Number(r.co2Kg ?? 0),
                       },
                     ])
-                    : Object.entries(d.perType ?? d.byType ?? {});
+                    : Object.entries(d.perType ?? d.byType ?? {}).map(([id, r]: any) => [
+                      id,
+                      {
+                        label: r.label ?? id,
+                        count: Number(r.total ?? r.count ?? 0),
+                        grades: {
+                          A: Number(r.A ?? 0),
+                          B: Number(r.B ?? 0),
+                          C: Number(r.C ?? 0),
+                          D: Number(r.D ?? 0),
+                          E: Number(r.E ?? 0),
+                        },
+                        eWasteKg: Number(r.eWasteKg ?? 0),
+                        recycledKg: Number(r.recycledKg ?? 0),
+                        co2Kg: Number(r.co2Kg ?? 0),
+                      },
+                    ]);
 
-                  return entries.map(([id, row]) => {
-                    const g = (row?.grades ?? {}) as Partial<Record<"A" | "B" | "C" | "D" | "E", number>>;
-                    return (
-                      <tr key={id}>
-                        <td style={TD}>{row?.label ?? id}</td>
-                        <td style={TDnum}>{row?.count ?? 0}</td>
-                        <td style={TDnum}>{g.A ?? 0}</td>
-                        <td style={TDnum}>{g.B ?? 0}</td>
-                        <td style={TDnum}>{g.C ?? 0}</td>
-                        <td style={TDnum}>{g.D ?? 0}</td>
-                        <td style={TDnum}>{g.E ?? 0}</td>
-                        <td style={TDnum}>{row?.eWasteKg ?? 0}</td>
-                        <td style={TDnum}>{row?.recycledKg ?? 0}</td>
-                        <td style={TDnum}>{row?.co2Kg ?? 0}</td>
+                  // Totals
+                  const tot = entries.reduce(
+                    (acc, [, row]) => {
+                      acc.count += row.count;
+                      acc.A += row.grades.A || 0;
+                      acc.B += row.grades.B || 0;
+                      acc.C += row.grades.C || 0;
+                      acc.D += row.grades.D || 0;
+                      acc.E += row.grades.E || 0;
+                      acc.eWasteKg += row.eWasteKg || 0;
+                      acc.recycledKg += row.recycledKg || 0;
+                      acc.co2Kg += row.co2Kg || 0;
+                      return acc;
+                    },
+                    { count: 0, A: 0, B: 0, C: 0, D: 0, E: 0, eWasteKg: 0, recycledKg: 0, co2Kg: 0 }
+                  );
+
+                  return (
+                    <>
+                      {entries.map(([id, row]) => {
+                        const g = row.grades as Partial<Record<"A" | "B" | "C" | "D" | "E", number>>;
+                        return (
+                          <tr key={id}>
+                            <td style={TD}>{row.label ?? id}</td>
+                            <td style={TDnum}>{row.count}</td>
+                            <td style={TDnum}>{g.A ?? 0}</td>
+                            <td style={TDnum}>{g.B ?? 0}</td>
+                            <td style={TDnum}>{g.C ?? 0}</td>
+                            <td style={TDnum}>{g.D ?? 0}</td>
+                            <td style={TDnum}>{g.E ?? 0}</td>
+                            <td style={TDnum}>{Math.round(row.eWasteKg)}</td>
+                            <td style={TDnum}>{Math.round(row.recycledKg)}</td>
+                            <td style={TDnum}>{Math.round(row.co2Kg)}</td>
+                          </tr>
+                        );
+                      })}
+
+                      {/* totalsrad */}
+                      <tr>
+                        <td style={{ ...TD, fontWeight: 700, background: "#0f172a1a" }}>Totalt</td>
+                        <td style={{ ...TDnum, fontWeight: 700, background: "#0f172a1a" }}>{tot.count}</td>
+                        <td style={{ ...TDnum, fontWeight: 700, background: "#0f172a1a" }}>{tot.A}</td>
+                        <td style={{ ...TDnum, fontWeight: 700, background: "#0f172a1a" }}>{tot.B}</td>
+                        <td style={{ ...TDnum, fontWeight: 700, background: "#0f172a1a" }}>{tot.C}</td>
+                        <td style={{ ...TDnum, fontWeight: 700, background: "#0f172a1a" }}>{tot.D}</td>
+                        <td style={{ ...TDnum, fontWeight: 700, background: "#0f172a1a" }}>{tot.E}</td>
+                        <td style={{ ...TDnum, fontWeight: 700, background: "#0f172a1a" }}>{Math.round(tot.eWasteKg)}</td>
+                        <td style={{ ...TDnum, fontWeight: 700, background: "#0f172a1a" }}>{Math.round(tot.recycledKg)}</td>
+                        <td style={{ ...TDnum, fontWeight: 700, background: "#0f172a1a" }}>{Math.round(tot.co2Kg)}</td>
                       </tr>
-                    );
-                  });
+                    </>
+                  );
                 })()}
+
               </tbody>
             </table>
           </div>

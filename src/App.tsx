@@ -50,6 +50,8 @@ import ProductTypesAdmin from "./pages/ProductTypesAdmin";
 import ReportDetailPage from "./pages/ReportDetailPage";
 import ReportsPage from "./pages/ReportsPage";
 import UserAdmin from "./pages/UserAdmin";
+import VerifyEmail from "./pages/VerifyEmail";
+import PendingAccess from "./pages/PendingAccess";
 
 // Components
 import ClearableInput from "./components/ClearableInput";
@@ -67,6 +69,8 @@ import type { PreparedImpactDisplay, ProductType, RawImpactItem } from "./lib/im
 import { computeBillingSteps, buildInvoiceSummary } from "./lib/billing";
 import type { InvoiceSummary } from "./lib/billing";
 import { REPORTS_COLLECTION, INVOICE_SUBCOLLECTION } from "./lib/reports";
+import { EMAIL_VERIFICATION_ACS } from "./firebase";
+
 
 // Firebase app bindings
 import { auth, db, storage } from "./firebase";
@@ -124,6 +128,7 @@ import {
   getAuth,
   getIdTokenResult,
   onAuthStateChanged,
+  reload,
   onIdTokenChanged,
   sendEmailVerification,
   sendPasswordResetEmail,
@@ -3440,14 +3445,16 @@ const lastSerialAllocRef: { current: LastSerialAlloc | null } = { current: null 
 
 // === [NYTT – TOP-LEVEL] Klient-anrop till Cloud Function: setUserClaims ===
 
-type GwAccountRole = "admin" | "user" | "customer";
+// === setUserClaims client types ===
+type GwAccountRole = "admin" | "user" | "customer" | "unassigned";
 type GwAccountStatus = "pending" | "active" | "disabled";
 
+// status is optional (not needed for "unassigned")
 type SetUserClaimsRequest = {
   uid: string;
   role: GwAccountRole;
-  status: GwAccountStatus;
-  customerKeys?: string[]; // krävs om role === "customer"
+  status?: GwAccountStatus;
+  customerKeys?: string[];        // only for role === "customer"
 };
 
 type SetUserClaimsResponse = {
@@ -3466,8 +3473,11 @@ export async function gwSetUserClaims(req: SetUserClaimsRequest): Promise<SetUse
 
 export default function App(): JSX.Element {
 
+
+
+
   // Auth & Roles
-  type Role = "admin" | "user";
+  type Role = "admin" | "user" | "customer" | "unassigned";
   type AppUser = { uid: string; email: string; emailVerified: boolean; role: Role };
   const [user, setUser] = useState<AppUser | null>(null);
   const [authReady, setAuthReady] = useState(false);
@@ -3478,7 +3488,7 @@ export default function App(): JSX.Element {
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (!u) { setUser(null); setAuthReady(true); return; }
       const token = await getIdTokenResult(u, true);
-      const role = (token.claims.role as Role) || "user";
+      const role = (token.claims.role as Role) || "unassigned";
       setUser({ uid: u.uid, email: u.email || "", emailVerified: u.emailVerified, role });
       setAuthReady(true);
     });
@@ -3525,6 +3535,12 @@ export default function App(): JSX.Element {
 
     await loadReportPreview(filters);
   }
+
+  // Visa verify-sidan om länken öppnats från e-post
+  if (typeof window !== "undefined" && window.location.pathname.startsWith("/verify")) {
+    return <VerifyEmail />;
+  }
+
 
   /** Laddar förhandsvisning givet filters */
   async function loadReportPreview(filters: ReportFilters) {
@@ -6333,14 +6349,26 @@ export default function App(): JSX.Element {
       setBusy(true); setMsg(null);
       try {
         const { user } = await signInWithEmailAndPassword(auth, email, password);
-        if (!user.emailVerified) { await signOut(auth); setMsg("E-post ej verifierad. Verifiera via länken i mailet först."); }
-      } catch (e) { setMsg(err(e)); } finally { setBusy(false); }
+        if (!user.emailVerified) {
+          // Skicka en NY verifieringslänk direkt och logga ut igen
+          try { await sendEmailVerification(user, EMAIL_VERIFICATION_ACS); } catch { }
+          await signOut(auth);
+          setMsg("E-post ej verifierad. En ny verifieringslänk har skickats – klicka på länken i mejlet och logga in igen.");
+          return;
+        }
+        // (annars fortsätter appen som vanligt efter login)
+      } catch (e) {
+        setMsg(err(e));
+      } finally {
+        setBusy(false);
+      }
     };
+
     const doSignup = async () => {
       setBusy(true); setMsg(null);
       try {
         const { user } = await createUserWithEmailAndPassword(auth, email, password);
-        await sendEmailVerification(user);
+        await sendEmailVerification(user, EMAIL_VERIFICATION_ACS);
         setMsg("Konto skapat. Vi har skickat ett verifieringsmail – verifiera och logga in.");
         setMode("login");
       } catch (e) { setMsg(err(e)); } finally { setBusy(false); }
@@ -6616,6 +6644,11 @@ export default function App(): JSX.Element {
     );
   }
 
+  // ⬇️ NYTT: blockera “unassigned” användare efter verifiering
+  if (user.role === "unassigned") {
+    return <PendingAccess />;
+  }
+
   // ===== RENDER: rapport-detaljvy ELLER vanliga appen =====
   return (
     <div className="goldwasser-app">
@@ -6670,62 +6703,62 @@ export default function App(): JSX.Element {
                       prev.includes(id) ? prev.filter((t: string) => t !== id) : [...prev, id]
                     )
                   }
-                    onRun={async () => {
-                      setReportLoading(true);
-                      setReportError(null);
-                      try {
-                        // 👇 Säkerställ att productTypes-cachen är primad innan vi bygger preview
-                        if (!rpTypesPrimed) {
-                          try {
-                            await loadProductTypesForImpact();
-                            setRpTypesPrimed(true);
-                          } catch (e) {
-                            console.warn("Fallback-prime misslyckades:", e);
-                          }
+                  onRun={async () => {
+                    setReportLoading(true);
+                    setReportError(null);
+                    try {
+                      // 👇 Säkerställ att productTypes-cachen är primad innan vi bygger preview
+                      if (!rpTypesPrimed) {
+                        try {
+                          await loadProductTypesForImpact();
+                          setRpTypesPrimed(true);
+                        } catch (e) {
+                          console.warn("Fallback-prime misslyckades:", e);
                         }
-
-                        // 🔒 Lås kundurvalet till det som faktiskt finns i UI-listan
-                        const allowedIds = new Set(rpCustomerOpts.map(o => o.key));
-                        let customerIds = (
-                          rpSelectedCustomers.length > 0
-                            ? rpSelectedCustomers
-                            : rpCustomerOpts.map(o => o.key)
-                        ).filter(id => allowedIds.has(id));
-
-                        // Kundläge: blockera körning om inget tillåtet val finns kvar
-                        if (isCustomerPortal && customerIds.length === 0) {
-                          setReportError("Inga behöriga kunder valda.");
-                          setReportLoading(false);
-                          return;
-                        }
-
-                        const productTypes: ProductType[] | undefined =
-                          rpSelectedTypes.length > 0
-                            ? (rpSelectedTypes as unknown as ProductType[])
-                            : undefined;
-
-                        const toYMD = (d: Date) => d.toISOString().slice(0, 10);
-                        const toDateExclusive =
-                          rpTo && rpTo.trim()
-                            ? toYMD(new Date(new Date(rpTo).getTime() + 24 * 60 * 60 * 1000))
-                            : undefined;
-
-                        const filters: ReportFilters = {
-                          fromDate: rpFrom,
-                          toDate: toDateExclusive ?? rpTo,
-                          basis: "completedAt",
-                          customerIds,
-                          productTypes,
-                        };
-
-                        const { preview } = await getImpactPreviewForFilters(filters);
-                        setReportPreview(preview);
-                      } catch (e: any) {
-                        setReportError(e?.message || "Fel vid rapportförhandsvisning");
-                      } finally {
-                        setReportLoading(false);
                       }
-                    }}
+
+                      // 🔒 Lås kundurvalet till det som faktiskt finns i UI-listan
+                      const allowedIds = new Set(rpCustomerOpts.map(o => o.key));
+                      let customerIds = (
+                        rpSelectedCustomers.length > 0
+                          ? rpSelectedCustomers
+                          : rpCustomerOpts.map(o => o.key)
+                      ).filter(id => allowedIds.has(id));
+
+                      // Kundläge: blockera körning om inget tillåtet val finns kvar
+                      if (isCustomerPortal && customerIds.length === 0) {
+                        setReportError("Inga behöriga kunder valda.");
+                        setReportLoading(false);
+                        return;
+                      }
+
+                      const productTypes: ProductType[] | undefined =
+                        rpSelectedTypes.length > 0
+                          ? (rpSelectedTypes as unknown as ProductType[])
+                          : undefined;
+
+                      const toYMD = (d: Date) => d.toISOString().slice(0, 10);
+                      const toDateExclusive =
+                        rpTo && rpTo.trim()
+                          ? toYMD(new Date(new Date(rpTo).getTime() + 24 * 60 * 60 * 1000))
+                          : undefined;
+
+                      const filters: ReportFilters = {
+                        fromDate: rpFrom,
+                        toDate: toDateExclusive ?? rpTo,
+                        basis: "completedAt",
+                        customerIds,
+                        productTypes,
+                      };
+
+                      const { preview } = await getImpactPreviewForFilters(filters);
+                      setReportPreview(preview);
+                    } catch (e: any) {
+                      setReportError(e?.message || "Fel vid rapportförhandsvisning");
+                    } finally {
+                      setReportLoading(false);
+                    }
+                  }}
 
 
                   loading={reportLoading}
@@ -8332,35 +8365,35 @@ export default function App(): JSX.Element {
               </>
             )}
 
-              {activePage === "fakturering" && (
-                <InvoicingPage
-                  user={user}
-                  isCustomer={isCustomer}
-                  billingCustomerFilter={billingCustomerFilter}
-                  setBillingCustomerFilter={setBillingCustomerFilter}
-                  billingFilteredItems={billingFilteredItems}
-                  allFilteredMarked={allFilteredMarked}
-                  isMarkingAll={isMarkingAll}
-                  creatingReport={creatingReport}
-                  setCreatingReport={setCreatingReport}
-                  toggleMarkAllInFiltered={toggleMarkAllInFiltered}
-                  setMarkedForInvoice={setMarkedForInvoice}
-                  updateItemsState={(updater) => setItems(prev => updater(prev as any) as any)}
-                  customerListOpts={customerListOpts}
-                  computeBillingSteps={computeBillingSteps}
-                  fmtDateOnly={fmtDateOnly}
-                  formatSerialForDisplay={formatSerialForDisplay}
-                  toEpochMillis={toEpochMillis}
-                  createInvoiceReportCF={createInvoiceReportCF}
-                  createInvoiceReportLocal={async () =>
-                    generateInvoiceReportForMarkedItems(
-                      (items as any[]).filter((it: any) => it?.completed === true),
-                      user?.email ?? null
-                    )
-                  }
-                  fetchFirstPage={fetchFirstPage}
-                />
-              )}
+            {activePage === "fakturering" && (
+              <InvoicingPage
+                user={user}
+                isCustomer={isCustomer}
+                billingCustomerFilter={billingCustomerFilter}
+                setBillingCustomerFilter={setBillingCustomerFilter}
+                billingFilteredItems={billingFilteredItems}
+                allFilteredMarked={allFilteredMarked}
+                isMarkingAll={isMarkingAll}
+                creatingReport={creatingReport}
+                setCreatingReport={setCreatingReport}
+                toggleMarkAllInFiltered={toggleMarkAllInFiltered}
+                setMarkedForInvoice={setMarkedForInvoice}
+                updateItemsState={(updater) => setItems(prev => updater(prev as any) as any)}
+                customerListOpts={customerListOpts}
+                computeBillingSteps={computeBillingSteps}
+                fmtDateOnly={fmtDateOnly}
+                formatSerialForDisplay={formatSerialForDisplay}
+                toEpochMillis={toEpochMillis}
+                createInvoiceReportCF={createInvoiceReportCF}
+                createInvoiceReportLocal={async () =>
+                  generateInvoiceReportForMarkedItems(
+                    (items as any[]).filter((it: any) => it?.completed === true),
+                    user?.email ?? null
+                  )
+                }
+                fetchFirstPage={fetchFirstPage}
+              />
+            )}
 
 
             {/* ANVÄNDARE (endast admin) */}
