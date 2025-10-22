@@ -3482,6 +3482,24 @@ export default function App(): JSX.Element {
   const [user, setUser] = useState<AppUser | null>(null);
   const [authReady, setAuthReady] = useState(false);
 
+  // --- Admin-gated debug (?debug=1) ---
+  const DEBUG =
+    typeof window !== "undefined" &&
+    new URLSearchParams(location.search).get("debug") === "1";
+
+  useEffect(() => {
+    if (!DEBUG) return;
+
+    // Tillåt debug endast när inloggad admin
+    if (user && (user as any)?.role === "admin") {
+      (window as any).__GW_DEBUG_ALLOWED__ = true;
+      document.dispatchEvent(new Event("gw:debug-ready"));
+    } else {
+      (window as any).__GW_DEBUG_ALLOWED__ = false;
+    }
+  }, [DEBUG, user]);
+
+
 
 
   useEffect(() => {
@@ -6628,19 +6646,19 @@ export default function App(): JSX.Element {
 
 
   // ===== Auth Gate =====
-  const DEBUG = typeof window !== "undefined" && new URLSearchParams(location.search).get("debug") === "1";
+  const CAN_DEBUG = DEBUG && (window as any).__GW_DEBUG_ALLOWED__ === true;
 
   if (!authReady) {
-    if (DEBUG) console.log("[Gate] not-ready");
+    if (CAN_DEBUG) console.log("[Gate] not-ready");
     return <div style={{ padding: 24 }}>Startar…</div>;
   }
 
   if (!user) {
-    if (DEBUG) console.log("[Gate] not-signed-in");
+    if (CAN_DEBUG) console.log("[Gate] not-signed-in");
     return <AuthForm />;
   }
 
-  if (DEBUG) {
+  if (CAN_DEBUG) {
     console.log("[Gate] before email-check", {
       email: user?.email,
       emailVerified: (user as any)?.emailVerified,
@@ -6650,7 +6668,7 @@ export default function App(): JSX.Element {
   }
 
   if (!user.emailVerified) {
-    if (DEBUG) console.log("[Gate] branch = verify-email");
+    if (CAN_DEBUG) console.log("[Gate] branch = verify-email");
     return (
       <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
         <div style={{ width: 420, maxWidth: "92vw", background: "#fff", border: "1px solid #eee", borderRadius: 12, padding: 20 }}>
@@ -6664,12 +6682,12 @@ export default function App(): JSX.Element {
     );
   }
 
-  if (DEBUG) console.log("[Gate] branch = pending/unassigned", { role: (user as any)?.role });
+  if (CAN_DEBUG) console.log("[Gate] branch = pending/unassigned", { role: (user as any)?.role });
   if (user.role === "unassigned") {
     return <PendingAccess />;
   }
 
-  if (DEBUG) console.log("[Gate] branch = app");
+  if (CAN_DEBUG) console.log("[Gate] branch = app");
 
 
 

@@ -111,21 +111,38 @@ export const db: Firestore = getFirestore(app);
 export const storage: FirebaseStorage = getStorage(app, "gs://it-returns.firebasestorage.app");
 
 
-// --- Debug: expose firebase options only when ?debug=1 is present ---
-declare global {
-  interface Window { __GW_DEBUG__?: any }
-}
+// --- Debug: visa endast om ?debug=1 OCH appen explicit tillåter (admin) ---
+declare global { interface Window { __GW_DEBUG__?: any; __GW_DEBUG_ALLOWED__?: boolean } }
+
 try {
-  if (typeof window !== "undefined" &&
-    new URLSearchParams(location.search).get("debug") === "1") {
+  const DEBUG =
+    typeof window !== "undefined" &&
+    new URLSearchParams(location.search).get("debug") === "1";
+
+  // liten helper så vi kan logga när appen ger klartecken
+  const logDebug = () => {
+    const safeOptions = { ...app.options, apiKey: "★redacted★" };
     (window as any).__GW_DEBUG__ = {
-      firebaseOptions: app.options,
+      firebaseOptions: safeOptions,
       projectId: app.options.projectId,
       storageBucket: app.options.storageBucket,
       authDomain: app.options.authDomain,
     };
-    // one concise log so you see it immediately
-    console.log("[env] firebase options", app.options);
+    console.log("[env] firebase options", safeOptions);
+    console.log("[build] commit", process.env.REACT_APP_COMMIT_SHA || "unknown");
+    console.log("[build] time  ", process.env.REACT_APP_BUILD_TIME || "unknown");
+  };
+
+  // logga direkt om admin redan hunnit tillåta
+  if (DEBUG && (window as any).__GW_DEBUG_ALLOWED__ === true) {
+    logDebug();
+  }
+
+  // annars: vänta på “gw:debug-ready” från App.tsx (när vi vet att user är admin)
+  if (DEBUG) {
+    document.addEventListener("gw:debug-ready", () => {
+      if ((window as any).__GW_DEBUG_ALLOWED__ === true) logDebug();
+    }, { once: true });
   }
 } catch { }
 
