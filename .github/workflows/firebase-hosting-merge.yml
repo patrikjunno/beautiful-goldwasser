@@ -18,6 +18,13 @@ jobs:
         with:
           node-version: '20'
 
+      # 🟢 Nytt steg: sätt build metadata (commit + tid)
+      - name: Set build metadata env
+        shell: bash
+        run: |
+          echo "REACT_APP_COMMIT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
+          echo "REACT_APP_BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
+
       - name: Expose CRA env vars to build
         run: |
           echo "REACT_APP_FIREBASE_API_KEY=${{ secrets.REACT_APP_FIREBASE_API_KEY }}" >> $GITHUB_ENV
