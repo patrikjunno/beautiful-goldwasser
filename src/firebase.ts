@@ -108,7 +108,27 @@ try {
 // ---- Init Auth, Firestore och Storage ----
 export const auth = getAuth(app);
 export const db: Firestore = getFirestore(app);
-export const storage: FirebaseStorage = getStorage(app);
+export const storage: FirebaseStorage = getStorage(app, "gs://it-returns.firebasestorage.app");
+
+
+// --- Debug: expose firebase options only when ?debug=1 is present ---
+declare global {
+  interface Window { __GW_DEBUG__?: any }
+}
+try {
+  if (typeof window !== "undefined" &&
+    new URLSearchParams(location.search).get("debug") === "1") {
+    (window as any).__GW_DEBUG__ = {
+      firebaseOptions: app.options,
+      projectId: app.options.projectId,
+      storageBucket: app.options.storageBucket,
+      authDomain: app.options.authDomain,
+    };
+    // one concise log so you see it immediately
+    console.log("[env] firebase options", app.options);
+  }
+} catch { }
+
 
 // Gör auth tillgänglig i DevTools i dev-läge
 if (process.env.NODE_ENV !== "production") {

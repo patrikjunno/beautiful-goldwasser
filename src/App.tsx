@@ -6628,9 +6628,29 @@ export default function App(): JSX.Element {
 
 
   // ===== Auth Gate =====
-  if (!authReady) return <div style={{ padding: 24 }}>Startar…</div>;
-  if (!user) return <AuthForm />;
+  const DEBUG = typeof window !== "undefined" && new URLSearchParams(location.search).get("debug") === "1";
+
+  if (!authReady) {
+    if (DEBUG) console.log("[Gate] not-ready");
+    return <div style={{ padding: 24 }}>Startar…</div>;
+  }
+
+  if (!user) {
+    if (DEBUG) console.log("[Gate] not-signed-in");
+    return <AuthForm />;
+  }
+
+  if (DEBUG) {
+    console.log("[Gate] before email-check", {
+      email: user?.email,
+      emailVerified: (user as any)?.emailVerified,
+      role: (user as any)?.role,
+      keys: Object.keys(user || {})
+    });
+  }
+
   if (!user.emailVerified) {
+    if (DEBUG) console.log("[Gate] branch = verify-email");
     return (
       <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
         <div style={{ width: 420, maxWidth: "92vw", background: "#fff", border: "1px solid #eee", borderRadius: 12, padding: 20 }}>
@@ -6644,10 +6664,14 @@ export default function App(): JSX.Element {
     );
   }
 
-  // ⬇️ NYTT: blockera “unassigned” användare efter verifiering
+  if (DEBUG) console.log("[Gate] branch = pending/unassigned", { role: (user as any)?.role });
   if (user.role === "unassigned") {
     return <PendingAccess />;
   }
+
+  if (DEBUG) console.log("[Gate] branch = app");
+
+
 
   // ===== RENDER: rapport-detaljvy ELLER vanliga appen =====
   return (

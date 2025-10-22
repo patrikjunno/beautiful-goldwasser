@@ -3,12 +3,15 @@
     "origin": [
       "http://localhost:3000",
       "http://127.0.0.1:3000",
+      "http://localhost:3001",
+      "https://it-returns.web.app",
+      "https://it-returns.firebaseapp.com",
       "https://app.it-returns.com"
     ],
     "method": ["GET", "HEAD", "PUT", "POST", "DELETE", "OPTIONS"],
     "responseHeader": [
-      "Content-Type",
       "Authorization",
+      "Content-Type",
       "x-goog-meta-*",
       "x-goog-resumable",
       "x-goog-upload-protocol",

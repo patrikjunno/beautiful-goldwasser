@@ -15,6 +15,8 @@ import { createInvoiceReport, deleteInvoiceReport } from "./invoicing";
 import { whoAmI } from "./whoAmI";
 
 import { buildCO2Preview } from "./reports/buildCO2Preview";
+import { userProfileOnCreate } from "./userOnCreate";
+
 
 // ⬇️ NY: använd nya implementationen
 import { listUsers as listUsers2 } from "./listUsers";
@@ -30,6 +32,9 @@ module.exports = {
   deleteUser,
   triggerPasswordReset,
   bootstrapMakeMeAdmin,
+
+  // Profil-spegling
+  userProfileOnCreate,
 
   // Claims/behörighet
   setUserClaims,
