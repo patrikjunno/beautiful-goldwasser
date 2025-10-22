@@ -94,7 +94,9 @@ export default function VerifyEmail() {
             {state.kind === "success" && (
                 <>
                     <h2 style={{ marginTop: 0 }}>E-post verifierad 🎉</h2>
-                    <p>Du kan nu stänga denna sida och logga in.</p>
+                    <p>
+                        Du kan nu återvända till fliken där du var – den uppdateras automatiskt.
+                    </p>
                 </>
             )}
 

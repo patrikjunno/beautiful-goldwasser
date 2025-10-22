@@ -3,6 +3,16 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import './styles.css';
 
+
+// FILE: src/index.tsx
+// Intercepta ALLA alert() så tidigt som möjligt (även före App() körs)
+// (gör alert helt tyst när ?debug=1 — inga konsolloggar)
+if (new URLSearchParams(location.search).get("debug") === "1") {
+  // @ts-ignore
+  window.alert = (_msg: any) => { };
+}
+
+
 const rootElement = document.getElementById("root")!;
 const root = ReactDOM.createRoot(rootElement);
 

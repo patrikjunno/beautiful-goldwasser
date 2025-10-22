@@ -266,13 +266,22 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create, update, delete: if isSignedIn();
     }
+
     // Artiklar under kund (om ni använder denna struktur)
     match /customers/{custId}/articles/{articleId} {
       allow read: if isSignedIn();
       allow create, update, delete: if isSignedIn();
     }
 
-    // Default: read-only för inloggade (ingen write om inget annat matchar)
+    // ===== Users-profiler =====
+    match /users/{uid} {
+      // Läs: egen profil ELLER admin
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+
+      // Skriv: endast admin (Functions/Admin SDK påverkas inte av regler)
+      allow create, update, delete: if isAdmin();
+    }
+
     match /{document=**} {
       allow read: if isSignedIn();
     }

@@ -16,6 +16,7 @@ import { whoAmI } from "./whoAmI";
 
 import { buildCO2Preview } from "./reports/buildCO2Preview";
 import { userProfileOnCreate } from "./userOnCreate";
+import { deleteUserAccount } from "./adminUsers";
 
 
 // ⬇️ NY: använd nya implementationen
@@ -32,6 +33,7 @@ module.exports = {
   deleteUser,
   triggerPasswordReset,
   bootstrapMakeMeAdmin,
+  deleteUserAccount,
 
   // Profil-spegling
   userProfileOnCreate,

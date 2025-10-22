@@ -9,6 +9,8 @@ import type { FirebaseStorage } from "firebase/storage";
 
 import { getAuth } from "firebase/auth";
 
+import type { ActionCodeSettings } from "firebase/auth";
+
 // import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 
 // ---- Typer för runtime-config (från /config.js) ----
@@ -51,10 +53,7 @@ const firebaseConfig = { ...envCfg, ...runtimeCfg };
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 
 // ===== Email verification settings =====
-export const EMAIL_VERIFICATION_ACS = {
-  url: "https://it-returns.web.app/verify", // sida i din app som tar emot oobCode
-  handleCodeInApp: true,
-};
+export const EMAIL_VERIFICATION_ACS: ActionCodeSettings | undefined = undefined;
 
 // ---- App Check (reCAPTCHA v3) ----
 const appCheckSiteKey =

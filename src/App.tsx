@@ -17,6 +17,9 @@
   pinnedAt: 2025-09-08
 */
 
+
+console.log("[App] module loaded @", new Date().toISOString());
+
 // Lås- och heartbeat-parametrar (stabilare för flera testare)
 const DRAFT_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
@@ -139,6 +142,75 @@ import { getFunctions, httpsCallable } from "firebase/functions";
 
 // Styles
 import "./styles.css";
+
+import useForceLogoutOnClaimsBump from "./hooks/useForceLogoutOnClaimsBump";
+import { useEmailVerificationPoll } from "./hooks/useEmailVerificationPoll";
+import LogoutNotice from "./components/LogoutNotice";
+
+// --- Inline-panel för e-postverifiering (uppdaterad) ---
+function VerifyEmailPanel() {
+  const { isVerified, isPolling, checkNow, startAutoPoll, resendEmail, error } =
+    useEmailVerificationPoll();
+
+  // Starta auto-poll när panelen visas
+  React.useEffect(() => {
+    startAutoPoll(30000, 4000); // 30s, var 4s
+  }, [startAutoPoll]);
+
+  // När verifierad: gör en mjuk refresh så Auth-gaten släpper igenom
+  React.useEffect(() => {
+    if (isVerified) {
+      setTimeout(() => {
+        // räcker i CRA för att trigga om auth/user och route
+        window.location.reload();
+      }, 300);
+    }
+  }, [isVerified]);
+
+  return (
+    <div style={{ maxWidth: 520, margin: "48px auto", padding: 16, border: "1px solid var(--border)", borderRadius: 12 }}>
+      <h2 style={{ marginTop: 0 }}>Verifiera din e-post</h2>
+      <p>
+        Vi har skickat ett mejl med en verifieringslänk. Öppna mejlet på valfri enhet
+        och klicka på länken. Återvänd hit – vi kontrollerar automatiskt.
+      </p>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+        <button
+          type="button"
+          // Viktigt: gör knappen ALLTID klickbar även när polling pågår
+          onClick={() => checkNow()}
+          className="btn btn-secondary"
+        >
+          Jag har klickat – kontrollera igen
+        </button>
+        <button
+          type="button"
+          onClick={() => resendEmail()}
+          className="btn btn-outline"
+        >
+          Skicka om e-post
+        </button>
+      </div>
+
+      <div style={{ marginTop: 10, fontSize: 12, opacity: 0.8 }}>
+        {isPolling ? "Kontrollerar..." : "Auto-kontroll pausad. Du kan kontrollera manuellt."}
+      </div>
+
+      {error && (
+        <div role="alert" style={{ marginTop: 12, color: "var(--danger)" }}>
+          {error}
+        </div>
+      )}
+
+      {isVerified && (
+        <div role="status" style={{ marginTop: 12, color: "var(--success)" }}>
+          Klart! Du är verifierad. (Appen släpper in dig automatiskt.)
+        </div>
+      )}
+    </div>
+  );
+}
 
 
 
@@ -3472,6 +3544,7 @@ export async function gwSetUserClaims(req: SetUserClaimsRequest): Promise<SetUse
 
 
 export default function App(): JSX.Element {
+  console.log("[App] render start");
 
 
 
@@ -3512,6 +3585,25 @@ export default function App(): JSX.Element {
     });
     return () => unsub();
   }, []);
+
+  const forceLogoutEnabled = authReady && !!user;
+  useForceLogoutOnClaimsBump(forceLogoutEnabled);
+
+  const [showLogoutNotice, setShowLogoutNotice] = React.useState(false);
+
+  React.useEffect(() => {
+    const onBumped = () => setShowLogoutNotice(true);
+    window.addEventListener("gw:claims-bumped", onBumped);
+    return () => window.removeEventListener("gw:claims-bumped", onBumped);
+  }, []);
+
+  console.log("[forceLogout] enabled?", {
+    enabled: forceLogoutEnabled,
+    uid: user?.uid,
+    email: user?.email,
+  });
+
+
 
   const [reportIdFromHash, setReportIdFromHash] = useState<string | null>(null);
   useEffect(() => {
@@ -6644,7 +6736,6 @@ export default function App(): JSX.Element {
 
 
 
-
   // ===== Auth Gate =====
   const CAN_DEBUG = DEBUG && (window as any).__GW_DEBUG_ALLOWED__ === true;
 
@@ -6669,18 +6760,9 @@ export default function App(): JSX.Element {
 
   if (!user.emailVerified) {
     if (CAN_DEBUG) console.log("[Gate] branch = verify-email");
-    return (
-      <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
-        <div style={{ width: 420, maxWidth: "92vw", background: "#fff", border: "1px solid #eee", borderRadius: 12, padding: 20 }}>
-          <h3>Verifiera din e-post</h3>
-          <p>Kolla din inkorg och klicka på länken. Ladda sedan om sidan.</p>
-          <button onClick={() => signOut(auth)} style={{ marginTop: 8, padding: 10, borderRadius: 8, border: "1px solid #ddd" }}>
-            Logga ut
-          </button>
-        </div>
-      </div>
-    );
+    return <VerifyEmailPanel />;
   }
+
 
   if (CAN_DEBUG) console.log("[Gate] branch = pending/unassigned", { role: (user as any)?.role });
   if (user.role === "unassigned") {
@@ -6692,6 +6774,9 @@ export default function App(): JSX.Element {
 
 
   // ===== RENDER: rapport-detaljvy ELLER vanliga appen =====
+
+
+  
   return (
     <div className="goldwasser-app">
       {isReportView ? (
@@ -8445,6 +8530,15 @@ export default function App(): JSX.Element {
         </div>
       )
       }
-    </div >
+
+      {/* --- Auto-logout notice (added) --- */}
+      {showLogoutNotice && (
+        <LogoutNotice
+          seconds={10}
+          onLoggedOut={() => setShowLogoutNotice(false)}
+        />
+      )}
+
+    </div>
   );
 } // end component

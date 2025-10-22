@@ -1,18 +1,44 @@
 // src/pages/UserAdmin.tsx
 import React, { useEffect, useState } from "react";
 import { collection, getDocs, getDoc, doc } from "firebase/firestore";
-import { httpsCallable, getFunctions } from "firebase/functions";
+import { httpsCallable, getFunctions, connectFunctionsEmulator } from "firebase/functions";
 import { db } from "../firebase";
+
 
 /**
  * Bindningar till Cloud Functions
  * (namnen här ska matcha dina deployade CF-funktionsnamn)
  */
 const functions = getFunctions(undefined, "europe-west1");
+
+// [NYTT] Anslut till emulatorn automatiskt i dev
+// if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
+   // try {
+     //   connectFunctionsEmulator(functions, "localhost", 5001);
+       // console.log("[UserAdmin] Using Functions emulator at localhost:5001");
+    // } catch {
+        // ignorera om redan ansluten
+    // }
+// }
 const fnListUsers = httpsCallable<any, any>(functions, "listUsers");
 const fnDeleteUser = httpsCallable<any, any>(functions, "deleteUser");
 const fnTriggerReset = httpsCallable<any, any>(functions, "triggerPasswordReset");
 const setUserClaims = httpsCallable<any, any>(functions, "setUserClaims");
+
+// === [NYTT] Klient-anrop till Cloud Function: deleteUserAccount ===
+type DeleteUserAccountRequest = { uid: string };
+type DeleteUserAccountResponse = {
+    ok: true;
+    deleted: { auth: boolean; userDoc: boolean };
+    auditId?: string;
+};
+
+async function gwDeleteUserAccount(uid: string): Promise<DeleteUserAccountResponse> {
+    const fns = getFunctions(undefined, "europe-west1");
+    const call = httpsCallable<DeleteUserAccountRequest, DeleteUserAccountResponse>(fns, "deleteUserAccount");
+    const res = await call({ uid });
+    return res.data;
+}
 
 export default function UsersAdmin() {
     type AdminUserRow = {
@@ -109,10 +135,24 @@ export default function UsersAdmin() {
 
     // ---- Åtgärder ----
     const doDelete = async (uid: string) => {
-        if (!confirm("Radera användare permanent?")) return;
-        await fnDeleteUser({ uid });
-        await load();
+        if (!confirm("⚠️ Vill du verkligen radera användaren permanent?")) return;
+
+        setMsg("Raderar användare...");
+        try {
+            const res = await gwDeleteUserAccount(uid);
+            const parts: string[] = [];
+            if (res.deleted.auth) parts.push("Auth");
+            if (res.deleted.userDoc) parts.push("Firestore");
+            setMsg(`✅ Raderad (${parts.join(" + ")})`);
+            await load();
+        } catch (e: any) {
+            console.error("[UserAdmin] deleteUserAccount failed:", e);
+            alert("Kunde inte radera användare: " + (e?.message || String(e)));
+        } finally {
+            setMsg(null);
+        }
     };
+
 
     const sendReset = async (email: string) => {
         const res: any = await fnTriggerReset({ email });
